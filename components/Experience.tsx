@@ -69,13 +69,14 @@ const ROLES: RoleDetails[] = [
   {
     title: "Problem Setter Intern",
     department: "Engineering",
-    company: "Mocha Works",
-    period: "May 2024 – Jul 2024",
+    company: "Mocha Works (Remote)",
+    period: "Apr 2023 – Jan 2024",
     active: false,
-    skills: ["Algorithms", "Data Structures", "Problem Design", "C++", "Test Case Generation"],
+    skills: ["Algorithms", "Data Structures", "Problem Design", "Python", "C++", "Test Case Generation"],
     points: [
-      "Curated complex algorithmic and logical problems for tech hiring examinations.",
-      "Implemented optimized reference solutions and designed exhaustive test-case edge cases in C++ to validate candidate solutions.",
+      "Designed multi-difficulty algorithmic challenges with robust test cases for competitive programming platforms.",
+      "Validated problem logic, edge cases, and solution correctness collaborating with engineering teams using Python.",
+      "Implemented optimized C++ reference solutions and designed exhaustive test-case edge cases to validate candidate submissions.",
     ],
   },
 ];

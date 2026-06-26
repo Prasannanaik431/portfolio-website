@@ -1,0 +1,302 @@
+---
+title: "FinOps for Kubernetes: Automated Cost Optimization & Resource Scheduling"
+date: "2026-06-22"
+excerpt: "How I implemented FinOps practices at Mareana — automated cluster scheduling, idle resource elimination, per-namespace cost analysis, and Grafana dashboards — reducing non-production cloud spend by 40%."
+tags: ["FinOps", "Kubernetes", "Cost Optimization", "Platform Engineering", "AWS", "DevOps"]
+readingTime: 11
+---
+
+# FinOps for Kubernetes: Automated Cost Optimization & Resource Scheduling
+
+Cloud costs in a multi-environment Kubernetes setup can spiral quickly. At Mareana, we managed 35+ environments — dev, staging, QA, demo — each running full Kubernetes clusters on AWS EKS and Azure AKS. Non-production environments were burning through cloud budget **24/7**, even when no engineer was working.
+
+I implemented a comprehensive **FinOps automation layer** that reduced non-production cloud spend by ~40% in 30 days — without impacting developer experience.
+
+---
+
+## The Problem
+
+```bash
+# A typical non-prod environment at night:
+kubectl top nodes --selector=env=dev
+
+# NAME                    CPU(cores)  CPU%   MEMORY(bytes)  MEMORY%
+# gke-dev-pool-1-abc123   45m         1%     2048Mi         8%
+# gke-dev-pool-1-def456   32m         0%     1890Mi         7%
+# gke-dev-pool-1-ghi789   28m         0%     1750Mi         6%
+```
+
+Three nodes, running at **&lt;5% utilization**, costing ~$300/month — each. That&apos;s $900/month for idle dev nodes, multiplied across 20+ non-production environments.
+
+
+The root causes:
+1. **No auto-scheduling** — clusters ran 24/7 regardless of usage
+2. **No resource requests/limits** — pods had no guardrails, preventing HPA/CA from right-sizing
+3. **No visibility** — teams had no idea what their environment cost
+4. **Over-provisioning** — dev environments were provisioned identically to production
+
+---
+
+## Solution 1: Cluster Schedule Automation
+
+We built a scheduling system using **AWS Lambda + EventBridge** that scales EKS node groups to 0 outside business hours:
+
+```python
+# lambda/schedule_cluster.py
+
+import boto3
+import json
+import os
+from datetime import datetime, timezone
+
+eks_client = boto3.client('eks', region_name=os.environ['AWS_REGION'])
+asg_client = boto3.client('autoscaling', region_name=os.environ['AWS_REGION'])
+
+def get_node_groups(cluster_name: str) -> list:
+    """Get all managed node group names for a cluster."""
+    paginator = eks_client.get_paginator('list_nodegroups')
+    groups = []
+    for page in paginator.paginate(clusterName=cluster_name):
+        groups.extend(page['nodegroups'])
+    return groups
+
+def scale_node_group(cluster: str, nodegroup: str, min: int, max: int, desired: int):
+    eks_client.update_nodegroup_config(
+        clusterName=cluster,
+        nodegroupName=nodegroup,
+        scalingConfig={
+            'minSize': min,
+            'maxSize': max,
+            'desiredSize': desired,
+        }
+    )
+
+def handler(event, context):
+    action = event.get('action', 'status')  # 'start' | 'stop'
+    env_tag = event.get('env', 'dev')
+
+    # Fetch clusters tagged with this environment
+    clusters = [c for c in eks_client.list_clusters()['clusters']
+                if env_tag in c.lower()]
+
+    for cluster in clusters:
+        nodegroups = get_node_groups(cluster)
+
+        for ng in nodegroups:
+            if action == 'stop':
+                scale_node_group(cluster, ng, min=0, max=5, desired=0)
+                print(f"[STOP] {cluster}/{ng} → scaled to 0")
+            elif action == 'start':
+                scale_node_group(cluster, ng, min=1, max=5, desired=2)
+                print(f"[START] {cluster}/{ng} → scaled to 2")
+
+    return {"statusCode": 200, "clusters": clusters, "action": action}
+```
+
+EventBridge rules trigger the Lambda on a schedule:
+
+```json
+// eventbridge-rules.json
+{
+  "Rules": [
+    {
+      "Name": "dev-clusters-stop",
+      "ScheduleExpression": "cron(0 20 ? * MON-FRI *)",
+      "Description": "Stop dev clusters at 8pm IST weekdays",
+      "Input": "{\"action\": \"stop\", \"env\": \"dev\"}"
+    },
+    {
+      "Name": "dev-clusters-start",
+      "ScheduleExpression": "cron(30 1 ? * MON-FRI *)",
+      "Description": "Start dev clusters at 7am IST weekdays",
+      "Input": "{\"action\": \"start\", \"env\": \"dev\"}"
+    },
+    {
+      "Name": "dev-clusters-weekend-stop",
+      "ScheduleExpression": "cron(0 18 ? * FRI *)",
+      "Description": "Stop dev clusters Friday 6pm until Monday",
+      "Input": "{\"action\": \"stop\", \"env\": \"dev\"}"
+    }
+  ]
+}
+```
+
+This alone saved **~60 hours of idle node runtime per cluster per week**.
+
+---
+
+## Solution 2: Kubernetes Resource Request Enforcement
+
+Without resource requests, the Kubernetes Cluster Autoscaler can't make accurate bin-packing decisions. We used Kyverno to enforce resource requests and limits:
+
+```yaml
+# kyverno-resource-limits.yaml
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-resource-limits
+spec:
+  validationFailureAction: Enforce
+  rules:
+    - name: check-container-resources
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      validate:
+        message: "All containers must define resource requests and limits."
+        pattern:
+          spec:
+            containers:
+              - resources:
+                  requests:
+                    memory: "?*"
+                    cpu: "?*"
+                  limits:
+                    memory: "?*"
+                    cpu: "?*"
+```
+
+We also added a **LimitRange** to set sensible defaults for namespaces that don't specify:
+
+```yaml
+# namespace-limit-range.yaml
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-limits
+  namespace: dev-payments
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: "500m"
+        memory: "512Mi"
+      defaultRequest:
+        cpu: "100m"
+        memory: "128Mi"
+      max:
+        cpu: "2"
+        memory: "4Gi"
+```
+
+---
+
+## Solution 3: Per-Environment Cost Analysis with Kubecost
+
+We deployed [Kubecost](https://www.kubecost.com/) to give per-namespace and per-team cost visibility:
+
+```bash
+# Install Kubecost
+helm repo add cost-analyzer https://kubecost.github.io/cost-analyzer/
+
+helm upgrade --install kubecost \
+  cost-analyzer/cost-analyzer \
+  --namespace kubecost \
+  --create-namespace \
+  --set kubecostToken="$(cat kubecost-token.txt)" \
+  --set prometheus.server.persistentVolume.enabled=true \
+  --set global.notifications.alertConfigs.alerts[0].type=budget \
+  --set global.notifications.alertConfigs.alerts[0].threshold=500 \
+  --set global.notifications.alertConfigs.alerts[0].window=7d
+```
+
+Expose the Kubecost API to a Grafana dashboard:
+
+```bash
+# Query 7-day cost by namespace
+curl "http://kubecost.kubecost.svc:9090/model/allocation?window=7d&aggregate=namespace" \
+  | python3 -m json.tool | head -50
+
+# Sample output:
+# {
+#   "prod-payments": { "cpuCost": 45.23, "memoryCost": 12.18, "totalCost": 57.41 },
+#   "dev-payments":  { "cpuCost": 18.90, "memoryCost": 5.40,  "totalCost": 24.30 },
+#   "staging-api":   { "cpuCost": 22.10, "memoryCost": 7.80,  "totalCost": 29.90 }
+# }
+```
+
+---
+
+## Solution 4: Grafana FinOps Dashboard
+
+We built a Grafana dashboard that aggregates cost, utilization, and schedule data:
+
+```json
+// grafana-finops-panel.json (simplified)
+{
+  "title": "Cloud Cost by Environment (7d)",
+  "type": "barchart",
+  "targets": [
+    {
+      "expr": "kubecost_cluster_management_cost{environment=~\"$env\"}",
+      "legendFormat": "{{ environment }}"
+    }
+  ],
+  "options": {
+    "groupWidth": 0.7,
+    "tooltip": { "mode": "multi" }
+  }
+}
+```
+
+The dashboard shows:
+- **Cost per namespace** (7d rolling)
+- **CPU/Memory efficiency scores** per team
+- **Cluster schedule status** (running/stopped)
+- **Budget alerts** — Slack notification when namespace exceeds $500/7d
+
+---
+
+## The On-Demand Override
+
+For unplanned late-night work, engineers can **self-service start their dev cluster** via a Slack slash command:
+
+```bash
+# In Slack:
+/start-env dev-payments
+
+# Bot responds:
+# ✓ Cluster dev-payments starting...
+# ✓ Node pool scaled to 2 nodes
+# ✓ Pods rescheduling...
+# ✓ Environment ready in ~3 minutes
+# ⏰ Auto-shutdown in 4 hours (11:30 PM IST)
+```
+
+The Slack bot calls the same Lambda — no AWS console access needed.
+
+---
+
+## Results After 30 Days
+
+| Metric | Before | After |
+|--------|--------|-------|
+| Non-prod idle hours/week | ~128h | ~12h |
+| Non-prod cloud spend/month | ~$14,200 | ~$8,500 |
+| Savings | — | **~$5,700/month (40%)** |
+| Pod evictions due to OOM | 15–20/week | 2–3/week |
+| Budget overrun incidents | 4/month | 0/month |
+| Developer complaints about env availability | Occasional | None |
+
+---
+
+## Key Takeaways
+
+1. **Schedule first** — the biggest savings come from simply turning off idle clusters at night and weekends
+2. **Enforce resource requests** — without them, Cluster Autoscaler can't right-size nodes
+3. **Give teams visibility** — cost dashboards change behavior; engineers optimize when they see the numbers
+4. **Automate overrides** — self-service cluster start via Slack maintains developer velocity
+5. **Measure continuously** — track cost weekly, not quarterly; small drifts compound fast
+
+---
+
+## References
+
+- [AWS EKS Managed Node Groups Scaling](https://docs.aws.amazon.com/eks/latest/userguide/managed-node-groups.html)
+- [Kubernetes LimitRange](https://kubernetes.io/docs/concepts/policy/limit-range/)
+- [Kubecost Documentation](https://www.kubecost.com/kubernetes-cost-efficiency/)
+- [Kyverno Policy Catalog](https://kyverno.io/policies/)
+- [AWS EventBridge Scheduled Rules](https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-scheduled-rule.html)
+- [CNCF FinOps for Kubernetes Whitepaper](https://www.cncf.io/reports/finops-for-kubernetes/)

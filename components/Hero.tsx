@@ -98,7 +98,7 @@ export default function Hero() {
           <motion.div variants={itemVariants} className="inline-flex">
             <span className="inline-flex items-center gap-1.5 rounded-full border border-brand-cyan/30 bg-brand-cyan/5 px-3.5 py-1 text-xs font-mono font-medium tracking-wide text-brand-cyan">
               <span className="h-1.5 w-1.5 rounded-full bg-brand-cyan animate-ping" />
-              Available for Production Deployment
+              Open to Platform & DevOps Engineering Roles
             </span>
           </motion.div>
 
@@ -116,17 +116,21 @@ export default function Hero() {
             >
               Platform Engineer
             </motion.h1>
-            <motion.div 
+            <motion.div
               variants={itemVariants}
-              className="flex flex-wrap gap-2 text-sm font-mono text-brand-cyan"
+              className="flex flex-wrap gap-1.5 text-xs font-mono text-brand-cyan"
             >
-              <span>#DevOps</span>
+              <span>#PlatformEngineering</span>
               <span className="text-muted-foreground">•</span>
               <span>#Kubernetes</span>
               <span className="text-muted-foreground">•</span>
               <span>#GitOps</span>
               <span className="text-muted-foreground">•</span>
-              <span>#CloudArchitecture</span>
+              <span>#DevSecOps</span>
+              <span className="text-muted-foreground">•</span>
+              <span>#IDP</span>
+              <span className="text-muted-foreground">•</span>
+              <span>#IaC</span>
             </motion.div>
           </div>
 
@@ -135,7 +139,7 @@ export default function Hero() {
             variants={itemVariants}
             className="text-base sm:text-lg text-muted-foreground max-w-xl leading-relaxed"
           >
-            Building scalable Kubernetes platforms, Internal Developer Platforms, GitOps pipelines and cloud infrastructure that empower engineering teams. Specialized in infrastructure reliability and security automation.
+            Platform Engineer with 1.5+ years designing Internal Developer Platforms, enterprise GitOps workflows, and production-grade Kubernetes infrastructure across 35+ environments on AWS &amp; Azure. Specialized in DevSecOps, secrets management, and developer self-service tooling.
           </motion.p>
 
           {/* Call-to-Actions */}
@@ -157,11 +161,11 @@ export default function Hero() {
               Read Blog
             </a>
             <a
-              href="/resume.pdf"
+              href="/resume/Prasanna_Naik_DevOps.pdf"
               download
-              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-white transition-colors py-2 px-3 font-mono"
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-brand-cyan transition-colors py-2 px-3 font-mono border border-white/10 rounded-full hover:border-brand-cyan/20"
             >
-              Download Resume
+              ↓ resume.pdf
             </a>
           </motion.div>
 
@@ -170,7 +174,7 @@ export default function Hero() {
             <span className="text-xs font-mono text-muted-foreground">Follow active feeds:</span>
             <div className="flex gap-3">
               <a
-                href="https://linkedin.com/in/prasanna-naik-40124b1ba"
+                href="https://www.linkedin.com/in/prasanna-naik-40124b1ba/"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="p-2 rounded-full bg-white/5 border border-white/5 text-muted-foreground hover:text-brand-cyan hover:border-brand-cyan/20 transition-all hover:scale-110"
@@ -179,7 +183,7 @@ export default function Hero() {
                 <LinkedinIcon className="h-4 w-4" />
               </a>
               <a
-                href="https://leetcode.com/prasannanaik"
+                href="https://leetcode.com/u/prasannanaik431/"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="p-2 rounded-full bg-white/5 border border-white/5 text-muted-foreground hover:text-brand-blue hover:border-brand-blue/20 transition-all hover:scale-110"
@@ -188,7 +192,7 @@ export default function Hero() {
                 <Code2 className="h-4 w-4" />
               </a>
               <a
-                href="https://github.com/prasannanaik"
+                href="https://github.com/Prasannanaik431"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="p-2 rounded-full bg-white/5 border border-white/5 text-muted-foreground hover:text-white hover:border-white/20 transition-all hover:scale-110"

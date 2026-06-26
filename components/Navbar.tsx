@@ -2,83 +2,63 @@
 
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useTheme } from "next-themes";
-import { Menu, X, Sun, Moon, Terminal, Download, Search } from "lucide-react";
+import { Menu, X, Terminal, Download, Search } from "lucide-react";
 
 const NAV_ITEMS = [
-  { label: "Home", href: "#home" },
-  { label: "About", href: "#about" },
-  { label: "Experience", href: "#experience" },
-  { label: "Projects", href: "#projects" },
-  { label: "Skills", href: "#skills" },
+  { label: "Home",         href: "#home" },
+  { label: "About",        href: "#about" },
+  { label: "Experience",   href: "#experience" },
+  { label: "Projects",     href: "#projects" },
+  { label: "Skills",       href: "#skills" },
   { label: "Achievements", href: "#achievements" },
-  { label: "Blog", href: "#blog" },
-  { label: "Contact", href: "#contact" },
+  { label: "Blog",         href: "#blog" },
+  { label: "Contact",      href: "#contact" },
 ];
 
 export default function Navbar() {
-  const [mounted, setMounted] = useState(false);
-  const [isOpen, setIsOpen] = useState(false);
-  const [activeSection, setActiveSection] = useState("home");
-  const { theme, setTheme } = useTheme();
+  const [isOpen, setIsOpen]         = useState(false);
+  const [activeSection, setActive]  = useState("home");
+  const [scrolled, setScrolled]     = useState(false);
 
-  // Handle mounting on client to avoid hydration mismatch
   useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  // Monitor scroll to highlight active link
-  useEffect(() => {
-    const handleScroll = () => {
+    const onScroll = () => {
+      setScrolled(window.scrollY > 20);
       const scrollPosition = window.scrollY + 200;
-      
       for (const item of NAV_ITEMS) {
         const id = item.href.substring(1);
-        const element = document.getElementById(id);
-        if (element) {
-          const offsetTop = element.offsetTop;
-          const offsetHeight = element.offsetHeight;
-          if (
-            scrollPosition >= offsetTop &&
-            scrollPosition < offsetTop + offsetHeight
-          ) {
-            setActiveSection(id);
-            break;
-          }
+        const el = document.getElementById(id);
+        if (el && scrollPosition >= el.offsetTop && scrollPosition < el.offsetTop + el.offsetHeight) {
+          setActive(id);
+          break;
         }
       }
     };
-
-    window.addEventListener("scroll", handleScroll);
-    return () => window.removeEventListener("scroll", handleScroll);
+    window.addEventListener("scroll", onScroll);
+    return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
   const handleNavClick = (e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
     e.preventDefault();
     const id = href.substring(1);
-    const element = document.getElementById(id);
-    if (element) {
-      const offsetTop = element.offsetTop - 80;
-      window.scrollTo({
-        top: offsetTop,
-        behavior: "smooth",
-      });
-      setActiveSection(id);
+    const el = document.getElementById(id);
+    if (el) {
+      window.scrollTo({ top: el.offsetTop - 80, behavior: "smooth" });
+      setActive(id);
       setIsOpen(false);
     }
   };
 
-  const toggleTheme = () => {
-    setTheme(theme === "dark" ? "light" : "dark");
-  };
-
   return (
-    <header className="sticky top-0 z-50 w-full glass-navbar transition-all duration-300">
+    <header
+      className={`sticky top-0 z-50 w-full transition-all duration-300 ${
+        scrolled ? "glass-navbar shadow-lg shadow-black/20" : "glass-navbar"
+      }`}
+    >
       <div className="mx-auto flex max-w-7xl h-16 items-center justify-between px-4 sm:px-6 lg:px-8">
-        {/* Brand Logo */}
-        <a 
-          href="#home" 
-          onClick={(e) => handleNavClick(e, "#home")}
+        {/* Brand */}
+        <a
+          href="#home"
+          onClick={e => handleNavClick(e, "#home")}
           className="flex items-center gap-2 font-mono text-lg font-bold tracking-tight text-foreground"
         >
           <motion.div
@@ -92,24 +72,24 @@ export default function Navbar() {
           </span>
         </a>
 
-        {/* Desktop Nav Items */}
+        {/* Desktop Nav */}
         <nav className="hidden md:flex items-center gap-1">
-          {NAV_ITEMS.map((item) => {
+          {NAV_ITEMS.map(item => {
             const id = item.href.substring(1);
             const isActive = activeSection === id;
             return (
               <a
                 key={item.href}
                 href={item.href}
-                onClick={(e) => handleNavClick(e, item.href)}
+                onClick={e => handleNavClick(e, item.href)}
                 className={`relative px-3 py-2 text-sm font-medium transition-colors hover:text-foreground ${
                   isActive ? "text-foreground" : "text-muted-foreground"
                 }`}
               >
                 {isActive && (
                   <motion.span
-                    layoutId="activeNavBackground"
-                    className="absolute inset-0 z-[-1] rounded-md bg-white/5 dark:bg-white/5 bg-black/5"
+                    layoutId="activeNavBg"
+                    className="absolute inset-0 z-[-1] rounded-md bg-white/5"
                     transition={{ type: "spring", stiffness: 380, damping: 30 }}
                   />
                 )}
@@ -119,13 +99,13 @@ export default function Navbar() {
           })}
         </nav>
 
-        {/* CTAs and Toggle */}
+        {/* Desktop CTAs */}
         <div className="hidden md:flex items-center gap-3">
-          {/* Ctrl+K command palette hint */}
+          {/* ⌘K command palette */}
           <button
             onClick={() => {
-              const event = new KeyboardEvent("keydown", { key: "k", ctrlKey: true, bubbles: true });
-              window.dispatchEvent(event);
+              const ev = new KeyboardEvent("keydown", { key: "k", ctrlKey: true, bubbles: true });
+              window.dispatchEvent(ev);
             }}
             className="flex items-center gap-1.5 rounded-md border border-white/10 bg-white/5 hover:bg-white/10 hover:border-brand-cyan/20 px-2.5 py-1.5 text-[10px] font-mono text-muted-foreground hover:text-foreground transition-all group"
             aria-label="Open command palette"
@@ -138,20 +118,8 @@ export default function Navbar() {
             </span>
           </button>
 
-          <button
-            onClick={toggleTheme}
-            className="rounded-full p-2 text-muted-foreground hover:bg-white/10 dark:hover:bg-white/5 hover:text-foreground transition-colors"
-            aria-label="Toggle theme"
-          >
-            {mounted && theme === "dark" ? (
-              <Sun className="h-4 w-4" />
-            ) : (
-              <Moon className="h-4 w-4" />
-            )}
-          </button>
-
           <a
-            href="/resume.pdf"
+            href="/resume/Prasanna_Naik_DevOps.pdf"
             download
             className="flex items-center gap-1.5 rounded-full bg-gradient-to-r from-brand-blue to-brand-cyan px-4 py-1.5 text-xs font-semibold text-white shadow-lg hover:shadow-cyan-500/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
           >
@@ -160,20 +128,8 @@ export default function Navbar() {
           </a>
         </div>
 
-        {/* Mobile Nav Button */}
+        {/* Mobile: Hamburger only */}
         <div className="flex md:hidden items-center gap-3">
-          <button
-            onClick={toggleTheme}
-            className="rounded-full p-2 text-muted-foreground hover:bg-white/10 hover:text-foreground transition-colors"
-            aria-label="Toggle theme"
-          >
-            {mounted && theme === "dark" ? (
-              <Sun className="h-4 w-4" />
-            ) : (
-              <Moon className="h-4 w-4" />
-            )}
-          </button>
-
           <button
             onClick={() => setIsOpen(!isOpen)}
             className="rounded-md p-2 text-muted-foreground hover:bg-white/10 hover:text-foreground transition-colors"
@@ -184,7 +140,7 @@ export default function Navbar() {
         </div>
       </div>
 
-      {/* Mobile Nav Drawer */}
+      {/* Mobile Drawer */}
       <AnimatePresence>
         {isOpen && (
           <motion.div
@@ -195,17 +151,17 @@ export default function Navbar() {
             className="md:hidden glass-navbar overflow-hidden border-t border-white/5"
           >
             <div className="flex flex-col gap-1 px-4 py-4">
-              {NAV_ITEMS.map((item) => {
+              {NAV_ITEMS.map(item => {
                 const id = item.href.substring(1);
                 const isActive = activeSection === id;
                 return (
                   <a
                     key={item.href}
                     href={item.href}
-                    onClick={(e) => handleNavClick(e, item.href)}
+                    onClick={e => handleNavClick(e, item.href)}
                     className={`flex items-center justify-between rounded-md px-3 py-2 text-sm font-medium transition-colors ${
-                      isActive 
-                        ? "bg-white/5 text-foreground" 
+                      isActive
+                        ? "bg-white/5 text-foreground"
                         : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
                     }`}
                   >
@@ -216,9 +172,9 @@ export default function Navbar() {
               })}
               <div className="mt-4 border-t border-white/5 pt-4">
                 <a
-                  href="/resume.pdf"
+                  href="/resume/Prasanna_Naik_DevOps.pdf"
                   download
-                  className="flex w-full items-center justify-center gap-2 rounded-md bg-gradient-to-r from-brand-blue to-brand-cyan py-2.5 text-center text-sm font-semibold text-white"
+                  className="flex w-full items-center justify-center gap-2 rounded-md bg-gradient-to-r from-brand-blue to-brand-cyan py-2.5 text-sm font-semibold text-white"
                 >
                   <Download className="h-4 w-4" />
                   Download Resume

@@ -54,19 +54,35 @@ function StatCounter({ target, suffix, duration = 1.5 }: { target: number; suffi
 
 export default function About() {
   const yamlContent = `name: Prasanna Suresh Naik
-role: Platform & DevOps Engineer
-experience: 1.5+ Years
+role: Platform Engineer & DevOps Engineer
+experience: 1.5+ years
+location: Bengaluru, India
+email: prasannanaik431@gmail.com
+phone: +91 6362090078
+github: github.com/Prasannanaik431
+leetcode: leetcode.com/u/prasannanaik431
+linkedin: linkedin.com/in/prasanna-naik-40124b1ba
+
+education:
+  degree: B.E. Computer Science & Engineering
+  college: RV College of Engineering, Bengaluru
+  year: 2020 – 2024
+  cgpa: 8.33 / 10
+
 specialization:
   - Kubernetes Platform Engineering
   - Internal Developer Platforms (IDP)
-  - GitOps & GitOps Pipelines (Flux2)
-  - Terraform (Infrastructure as Code)
+  - GitOps Workflows (Flux2)
+  - Terraform & Ansible (IaC)
   - DevSecOps & Kyverno Policy Engine
-  - AI-Powered Observability & Logs
-achievements:
-  deployments: "35+ Prod Envs Orchestrated"
-  velocity: "80% reduction in deploy cycles"
-  helm: "Built framework serving 100+ services"`;
+  - Secrets Management (AWS + Azure KV)
+  - Observability (Prometheus/Grafana/ELK)
+
+impact:
+  environments: 35+ production envs managed
+  deploy_speed: 80% reduction in deploy time
+  automation: 90% manual config eliminated
+  services: 100+ microservices on Helm framework`;
 
   return (
     <section id="about" className="py-24 relative overflow-hidden">

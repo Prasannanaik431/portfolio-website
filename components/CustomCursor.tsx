@@ -3,25 +3,24 @@
 import React, { useEffect, useState, useRef } from "react";
 
 export default function CustomCursor() {
-  const [pos, setPos] = useState({ x: -100, y: -100 });
-  const [trail, setTrail] = useState({ x: -100, y: -100 });
+  const [pos, setPos] = useState({ x: -200, y: -200 });
+  const [trail, setTrail] = useState({ x: -200, y: -200 });
   const [isPointer, setIsPointer] = useState(false);
   const [isClicking, setIsClicking] = useState(false);
-  const [visible, setVisible] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const rafRef = useRef<number>(0);
-  const targetRef = useRef({ x: -100, y: -100 });
+  const targetRef = useRef({ x: -200, y: -200 });
 
   useEffect(() => {
-    // Only show on non-touch devices
-    if (window.matchMedia("(pointer: coarse)").matches) return;
+    // Only show on pointer devices (not touch-only)
+    if (typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches) return;
 
-    setVisible(true);
+    setMounted(true);
 
     const onMouseMove = (e: MouseEvent) => {
       targetRef.current = { x: e.clientX, y: e.clientY };
       setPos({ x: e.clientX, y: e.clientY });
 
-      // Check if hovering something clickable
       const target = e.target as HTMLElement;
       const clickable = target.closest("a, button, [role='button'], select, input, textarea, label");
       setIsPointer(!!clickable);
@@ -29,21 +28,17 @@ export default function CustomCursor() {
 
     const onMouseDown = () => setIsClicking(true);
     const onMouseUp = () => setIsClicking(false);
-    const onMouseLeave = () => setVisible(false);
-    const onMouseEnter = () => setVisible(true);
 
     document.addEventListener("mousemove", onMouseMove);
     document.addEventListener("mousedown", onMouseDown);
     document.addEventListener("mouseup", onMouseUp);
-    document.addEventListener("mouseleave", onMouseLeave);
-    document.addEventListener("mouseenter", onMouseEnter);
 
-    // Smooth trailing dot animation via rAF
+    // Smooth ring lerp via rAF
     const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
     const animate = () => {
       setTrail(prev => ({
-        x: lerp(prev.x, targetRef.current.x, 0.12),
-        y: lerp(prev.y, targetRef.current.y, 0.12),
+        x: lerp(prev.x, targetRef.current.x, 0.1),
+        y: lerp(prev.y, targetRef.current.y, 0.1),
       }));
       rafRef.current = requestAnimationFrame(animate);
     };
@@ -53,42 +48,47 @@ export default function CustomCursor() {
       document.removeEventListener("mousemove", onMouseMove);
       document.removeEventListener("mousedown", onMouseDown);
       document.removeEventListener("mouseup", onMouseUp);
-      document.removeEventListener("mouseleave", onMouseLeave);
-      document.removeEventListener("mouseenter", onMouseEnter);
       cancelAnimationFrame(rafRef.current);
     };
   }, []);
 
-  if (!visible) return null;
+  if (!mounted) return null;
+
+  const ringSize = isPointer ? 40 : isClicking ? 24 : 30;
+  const dotSize = isClicking ? 5 : 3;
 
   return (
     <>
-      {/* Outer ring — trails behind cursor */}
+      {/* Outer ring — smooth trail */}
       <div
-        className="pointer-events-none fixed z-[9999] rounded-full border transition-all duration-150"
+        className="pointer-events-none fixed z-[99999]"
         style={{
-          width: isPointer ? 36 : 28,
-          height: isPointer ? 36 : 28,
-          borderColor: isPointer ? "rgba(6,182,212,0.6)" : "rgba(6,182,212,0.3)",
-          borderWidth: 1.5,
-          left: trail.x - (isPointer ? 18 : 14),
-          top: trail.y - (isPointer ? 18 : 14),
-          transform: `scale(${isClicking ? 0.85 : 1})`,
-          mixBlendMode: "normal",
-          backgroundColor: isPointer ? "rgba(6,182,212,0.05)" : "transparent",
+          width: ringSize,
+          height: ringSize,
+          left: trail.x - ringSize / 2,
+          top: trail.y - ringSize / 2,
+          borderRadius: "50%",
+          border: `1px solid ${isPointer ? "rgba(6,182,212,0.7)" : "rgba(6,182,212,0.35)"}`,
+          backgroundColor: isPointer ? "rgba(6,182,212,0.06)" : "transparent",
+          boxShadow: isPointer ? "0 0 14px rgba(6,182,212,0.25)" : "none",
+          transition: "width 200ms ease, height 200ms ease, border-color 200ms ease, box-shadow 200ms ease",
+          willChange: "transform",
         }}
       />
 
-      {/* Inner dot — snaps exactly to cursor */}
+      {/* Inner dot — exact position */}
       <div
-        className="pointer-events-none fixed z-[9999] rounded-full bg-brand-cyan transition-transform duration-75"
+        className="pointer-events-none fixed z-[99999]"
         style={{
-          width: isClicking ? 6 : 4,
-          height: isClicking ? 6 : 4,
-          left: pos.x - (isClicking ? 3 : 2),
-          top: pos.y - (isClicking ? 3 : 2),
-          opacity: 0.9,
-          transform: `scale(${isClicking ? 1.5 : 1})`,
+          width: dotSize,
+          height: dotSize,
+          left: pos.x - dotSize / 2,
+          top: pos.y - dotSize / 2,
+          borderRadius: "50%",
+          backgroundColor: "rgb(6,182,212)",
+          opacity: 0.95,
+          transition: "width 100ms ease, height 100ms ease",
+          willChange: "transform",
         }}
       />
     </>

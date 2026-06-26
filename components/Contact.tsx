@@ -79,10 +79,11 @@ export default function Contact() {
     { label: "IP ADDRESS", value: "185.199.108.153", copy: "185.199.108.153" },
     { label: "PORT", value: "443 (HTTPS/TLS)", copy: "443" },
     { label: "EMAIL", value: "prasannanaik431@gmail.com", copy: "prasannanaik431@gmail.com", icon: Mail },
-    { label: "LINKEDIN", value: "linkedin.com/in/prasanna-naik-40124b1ba", copy: "https://linkedin.com/in/prasanna-naik-40124b1ba", icon: LinkedinIcon },
-    { label: "GITHUB", value: "github.com/prasannanaik", copy: "https://github.com/prasannanaik", icon: GithubIcon },
-    { label: "LEETCODE", value: "leetcode.com/prasannanaik", copy: "https://leetcode.com/prasannanaik" },
+    { label: "LINKEDIN", value: "linkedin.com/in/prasanna-naik-40124b1ba", copy: "https://www.linkedin.com/in/prasanna-naik-40124b1ba/", icon: LinkedinIcon },
+    { label: "GITHUB", value: "github.com/Prasannanaik431", copy: "https://github.com/Prasannanaik431", icon: GithubIcon },
+    { label: "LEETCODE", value: "leetcode.com/u/prasannanaik431", copy: "https://leetcode.com/u/prasannanaik431/" },
   ];
+
 
   const handleCopy = (text: string, label: string) => {
     navigator.clipboard.writeText(text);

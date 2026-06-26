@@ -147,9 +147,35 @@ export default function TerminalSimulator() {
   const [showOutput, setShowOutput] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
   const [isTyping, setIsTyping] = useState<boolean>(false);
+  const [autoProgress, setAutoProgress] = useState<number>(0);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const autoRef  = useRef<NodeJS.Timeout | null>(null);
+  const autoProgRef = useRef<NodeJS.Timeout | null>(null);
+  const AUTO_INTERVAL = 10000; // 10 seconds
 
   const currentTab = COMMAND_TABS.find((t) => t.id === activeTab) || COMMAND_TABS[0];
+
+  // Reset the 10-second auto-rotate timer
+  const resetAutoRotate = () => {
+    setAutoProgress(0);
+    if (autoRef.current) clearTimeout(autoRef.current);
+    if (autoProgRef.current) clearInterval(autoProgRef.current);
+
+    // Progress bar tick every 100ms
+    let elapsed = 0;
+    autoProgRef.current = setInterval(() => {
+      elapsed += 100;
+      setAutoProgress(Math.min((elapsed / AUTO_INTERVAL) * 100, 100));
+    }, 100);
+
+    // Switch tab after AUTO_INTERVAL
+    autoRef.current = setTimeout(() => {
+      setActiveTab(prev => {
+        const idx = COMMAND_TABS.findIndex(t => t.id === prev);
+        return COMMAND_TABS[(idx + 1) % COMMAND_TABS.length].id;
+      });
+    }, AUTO_INTERVAL);
+  };
 
   const runSimulation = (tab: CommandTab) => {
     setIsTyping(true);
@@ -178,8 +204,11 @@ export default function TerminalSimulator() {
 
   useEffect(() => {
     runSimulation(currentTab);
+    resetAutoRotate();
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
+      if (autoRef.current) clearTimeout(autoRef.current);
+      if (autoProgRef.current) clearInterval(autoProgRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
@@ -227,7 +256,7 @@ export default function TerminalSimulator() {
           <button
             key={tab.id}
             onClick={() => {
-              if (!isTyping) setActiveTab(tab.id);
+              if (!isTyping) { setActiveTab(tab.id); }
             }}
             disabled={isTyping}
             className={`px-4 py-2 border-r border-white/5 transition-all relative min-w-[70px] text-center ${
@@ -245,6 +274,14 @@ export default function TerminalSimulator() {
             )}
           </button>
         ))}
+      </div>
+
+      {/* Auto-rotate progress bar */}
+      <div className="h-px w-full bg-white/0">
+        <div
+          className="h-full bg-brand-cyan/30 transition-none"
+          style={{ width: `${autoProgress}%` }}
+        />
       </div>
 
       {/* Console Area */}
