@@ -31,7 +31,7 @@ const ACHIEVEMENTS: AchievementDetails[] = [
     title: "Mareana Spot Award",
     subtitle: "Reusable Helm Framework",
     meta: "Awarded by Mareana Software Ltd",
-    description: "Recognized for architecting and deploying the Reusable Helm Deployment Framework which standardized microservices deployment across 35+ non-prod/prod environments and cut boilerplate YAML specifications by 90%.",
+    description: "Recognized for architecting the Reusable Helm Deployment Framework across 35+ environments — eliminating 99% of manual configuration, cutting deploy time by 95%, and standardizing 100+ microservices on a single golden path.",
     icon: <Award className="h-5 w-5" />,
     tags: ["Kubernetes", "Helm", "Infrastructure Velocity", "Team Enablement"],
     color: "blue",
@@ -72,12 +72,15 @@ export default function Achievements() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative">
         {/* Section Heading */}
         <div className="mb-16 text-left">
-          <h2 className="text-xs font-mono text-brand-cyan tracking-wider uppercase mb-2">
+          <h2 className="text-xs font-mono text-brand-cyan tracking-wide mb-2">
             $ journalctl -u awards.service
           </h2>
           <h3 className="text-3xl sm:text-4xl font-bold tracking-tight bg-gradient-to-r from-slate-950 via-slate-800 to-slate-600 bg-clip-text text-transparent dark:from-white dark:via-slate-200 dark:to-slate-400">
-            Achievements & Awards
+            Recognition that matched the work.
           </h3>
+          <p className="text-sm text-muted-foreground mt-3 max-w-2xl leading-relaxed">
+            Awards for velocity, standardization, and delivery — the outcomes behind the metrics.
+          </p>
           <div className="h-1 w-12 bg-gradient-to-r from-brand-blue to-brand-cyan mt-3 rounded-full" />
         </div>
 

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Menu, X, Terminal, Download, Search } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
@@ -16,10 +16,23 @@ const NAV_ITEMS = [
   { label: "Contact",      href: "#contact" },
 ];
 
+// Rotating greetings shown on brand click
+const GREETINGS = [
+  "Hey there! 👋",
+  "नमस्ते! 🙏",
+  "Welcome aboard! 🚀",
+  "Hello, World! 💻",
+  "Glad you're here ✨",
+  "Let's build something! ⚙️",
+];
+
 export default function Navbar() {
-  const [isOpen, setIsOpen]         = useState(false);
-  const [activeSection, setActive]  = useState("home");
-  const [scrolled, setScrolled]     = useState(false);
+  const [isOpen, setIsOpen]           = useState(false);
+  const [activeSection, setActive]    = useState("home");
+  const [scrolled, setScrolled]       = useState(false);
+  const [greeting, setGreeting]       = useState<string | null>(null);
+  const [greetIdx, setGreetIdx]       = useState(0);
+  const [logoAnimating, setLogoAnimating] = useState(false);
   const pathname = usePathname();
   const router   = useRouter();
 
@@ -49,21 +62,42 @@ export default function Navbar() {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
+  // Auto-dismiss greeting after 2.5s
+  useEffect(() => {
+    if (!greeting) return;
+    const t = setTimeout(() => setGreeting(null), 2500);
+    return () => clearTimeout(t);
+  }, [greeting]);
+
   const handleNavClick = (e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
     e.preventDefault();
     const id = href.substring(1);
     setIsOpen(false);
-
     if (isHomePage) {
-      // Already on homepage — just smooth scroll
       const el = document.getElementById(id);
       if (el) {
         window.scrollTo({ top: el.offsetTop - 80, behavior: "smooth" });
         setActive(id);
       }
     } else {
-      // On blog or any other page — navigate home with hash
       router.push(`/#${id}`);
+    }
+  };
+
+  const handleBrandClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    // Show greeting
+    const next = (greetIdx + 1) % GREETINGS.length;
+    setGreetIdx(next);
+    setGreeting(GREETINGS[next]);
+    setLogoAnimating(true);
+    setTimeout(() => setLogoAnimating(false), 600);
+
+    // Also scroll home if on homepage
+    if (isHomePage) {
+      e.preventDefault();
+      const el = document.getElementById("home");
+      if (el) window.scrollTo({ top: el.offsetTop - 80, behavior: "smooth" });
+      setActive("home");
     }
   };
 
@@ -74,28 +108,66 @@ export default function Navbar() {
       }`}
     >
       <div className="mx-auto flex max-w-7xl h-16 items-center justify-between px-4 sm:px-6 lg:px-8">
+
         {/* Brand */}
-        <a
-          href={isHomePage ? "#home" : "/"}
-          onClick={isHomePage ? (e) => handleNavClick(e, "#home") : undefined}
-          className="flex items-center gap-2 font-mono text-lg font-bold tracking-tight text-foreground"
-        >
-          <motion.div
-            animate={{ rotate: [0, 10, -10, 0] }}
-            transition={{ repeat: Infinity, duration: 5, ease: "easeInOut" }}
+        <div className="relative flex items-center">
+          <a
+            href={isHomePage ? "#home" : "/"}
+            onClick={handleBrandClick}
+            className="flex items-center gap-2 font-mono text-lg font-bold tracking-tight text-foreground group"
           >
-            <Terminal className="h-5 w-5 text-brand-cyan" />
-          </motion.div>
-          <span>
-            prasanna<span className="text-brand-cyan font-semibold">.naik</span>
-          </span>
-        </a>
+            <motion.div
+              animate={logoAnimating
+                ? { rotate: [0, -20, 20, -10, 10, 0], scale: [1, 1.3, 1.3, 1.1, 1] }
+                : { rotate: [0, 10, -10, 0] }
+              }
+              transition={logoAnimating
+                ? { duration: 0.55, ease: "easeInOut" }
+                : { repeat: Infinity, duration: 5, ease: "easeInOut" }
+              }
+            >
+              <Terminal className="h-5 w-5 text-brand-cyan" />
+            </motion.div>
+            <motion.span
+              animate={logoAnimating ? { scale: [1, 1.06, 1] } : {}}
+              transition={{ duration: 0.3 }}
+            >
+              prasanna<span className="text-brand-cyan font-semibold">.naik</span>
+            </motion.span>
+          </a>
+
+          {/* Greeting bubble */}
+          <AnimatePresence>
+            {greeting && (
+              <motion.div
+                key={greeting}
+                initial={{ opacity: 0, y: 8, scale: 0.85 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -6, scale: 0.9 }}
+                transition={{ type: "spring", stiffness: 420, damping: 28 }}
+                className="absolute left-0 top-full mt-2 z-[100] pointer-events-none"
+              >
+                <div className="relative bg-slate-900 dark:bg-slate-800 border border-brand-cyan/30 rounded-xl px-3.5 py-2 shadow-xl shadow-black/30 flex items-center gap-2 whitespace-nowrap">
+                  {/* Arrow pointing up to brand */}
+                  <div className="absolute -top-1.5 left-5 w-3 h-3 bg-slate-900 dark:bg-slate-800 border-l border-t border-brand-cyan/30 rotate-45" />
+                  <span className="text-xs font-mono font-semibold text-foreground tracking-wide">
+                    {greeting}
+                  </span>
+                  {/* Animated cyan dot */}
+                  <span className="h-1.5 w-1.5 rounded-full bg-brand-cyan animate-ping flex-shrink-0" />
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
 
         {/* Desktop Nav */}
         <nav className="hidden md:flex items-center gap-1">
           {NAV_ITEMS.map(item => {
             const id = item.href.substring(1);
-            const isActive = isHomePage ? activeSection === id : (id === "blog" && pathname.startsWith("/blog"));
+            const isActive = isHomePage
+              ? activeSection === id
+              : id === "blog" && pathname.startsWith("/blog");
             return (
               <a
                 key={item.href}
@@ -120,7 +192,6 @@ export default function Navbar() {
 
         {/* Desktop CTAs */}
         <div className="hidden md:flex items-center gap-3">
-          {/* ⌘K command palette */}
           <button
             onClick={() => {
               const ev = new KeyboardEvent("keydown", { key: "k", ctrlKey: true, bubbles: true });
@@ -147,7 +218,7 @@ export default function Navbar() {
           </a>
         </div>
 
-        {/* Mobile: Hamburger only */}
+        {/* Mobile hamburger */}
         <div className="flex md:hidden items-center gap-3">
           <button
             onClick={() => setIsOpen(!isOpen)}
@@ -172,7 +243,9 @@ export default function Navbar() {
             <div className="flex flex-col gap-1 px-4 py-4">
               {NAV_ITEMS.map(item => {
                 const id = item.href.substring(1);
-                const isActive = isHomePage ? activeSection === id : (id === "blog" && pathname.startsWith("/blog"));
+                const isActive = isHomePage
+                  ? activeSection === id
+                  : id === "blog" && pathname.startsWith("/blog");
                 return (
                   <a
                     key={item.href}

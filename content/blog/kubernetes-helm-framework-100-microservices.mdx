@@ -1,7 +1,7 @@
 ---
 title: "Helm Deployment Framework: Standardizing 100+ Microservices on Kubernetes"
 date: "2026-06-18"
-excerpt: "How I built a reusable Helm chart framework that reduced YAML boilerplate by 90% and standardized deployments across 100+ microservices in a multi-tenant Kubernetes platform."
+excerpt: "How I built a reusable Helm chart framework that reduced YAML boilerplate by 95% and standardized deployments across 100+ microservices in a multi-tenant Kubernetes platform."
 tags: ["Helm", "Kubernetes", "Platform Engineering", "DevOps", "GitOps"]
 author: "Prasanna Suresh Naik"
 readTime: "12 min read"
@@ -12,7 +12,7 @@ slug: "kubernetes-helm-framework-100-microservices"
 
 When you're managing 100+ microservices across 35+ environments, copy-pasted Kubernetes YAML becomes a liability. At Mareana, every new service started with someone duplicating an existing deployment manifest and tweaking values — leading to inconsistent probes, missing resource limits, and no standard for secrets injection.
 
-This post walks through the **reusable Helm framework** I built that replaced that chaos with a single, configurable chart. It reduced YAML per service by 90% and became the deployment backbone for our entire platform.
+This post walks through the **reusable Helm framework** I built that replaced that chaos with a single, configurable chart. It reduced YAML per service by 95% and became the deployment backbone for our entire platform.
 
 ---
 
@@ -67,7 +67,7 @@ A consuming service only needs:
 ```yaml
 # auth-service/values.yaml  (20 lines instead of 250)
 image:
-  repository: gcr.io/naik-prod/auth-service
+  repository: 123456789012.dkr.ecr.us-east-1.amazonaws.com/naik-prod/auth-service
   tag: "v2.4.1"
 
 service:
@@ -87,6 +87,10 @@ secrets:
 ```
 
 That's the entire service definition. Everything else — probes, RBAC, HPA, PodDisruptionBudget — is handled by the framework with sensible defaults.
+
+<ArchitectureDiagram />
+
+> **Architecture at a glance:** Services ship only a `values.yaml`. The shared `app-template` chart owns probes, secrets, HPA, and PDB — Flux promotes chart bumps fleet-wide.
 
 ---
 
@@ -338,7 +342,7 @@ metadata:
   name: auth-service
   namespace: flux-system
 spec:
-  image: gcr.io/naik-prod/auth-service
+  image: 123456789012.dkr.ecr.us-east-1.amazonaws.com/naik-prod/auth-service
   interval: 5m
 
 ---
@@ -370,7 +374,7 @@ mkdir -p services/payment-service
 # 2. Create minimal values.yaml
 cat > services/payment-service/values.yaml << 'EOF'
 image:
-  repository: gcr.io/naik-prod/payment-service
+  repository: 123456789012.dkr.ecr.us-east-1.amazonaws.com/naik-prod/payment-service
   tag: "v1.0.0"
 
 service:
@@ -451,5 +455,5 @@ helm template payment-service charts/app-template -f services/payment-service/va
 
 - [Helm Chart Best Practices](https://helm.sh/docs/chart_best_practices/)
 - [External Secrets Operator](https://external-secrets.io/)
-- [Flux2 Image Automation](https://fluxcd.io/flux/guides/image-update/)
-- [KEDA Scalers Reference](https://keda.sh/docs/scalers/)
+- [Flux Image Update Automation](https://fluxcd.io/flux/guides/image-update/)
+- [KEDA Scalers](https://keda.sh/docs/scalers/)

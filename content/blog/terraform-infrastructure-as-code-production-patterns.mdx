@@ -31,6 +31,10 @@ The patterns below solve each of these.
 
 ## 1. Module Hierarchy: Three-Layer Pattern
 
+<ArchitectureDiagram />
+
+> **Architecture at a glance:** Primitive modules know nothing about environments. Compositions wire primitives; environment folders only pass `tfvars`. Remote state in S3 with DynamoDB locking prevents concurrent apply races.
+
 Structure your Terraform code into three layers. This is the single most impactful architectural decision.
 
 ```
@@ -61,7 +65,7 @@ infra/
 # modules/eks-cluster/main.tf
 
 variable "cluster_name"    { type = string }
-variable "k8s_version"     { type = string  default = "1.30" }
+variable "k8s_version"     { type = string  default = "1.35" }
 variable "node_instance_type" { type = string  default = "t3.medium" }
 variable "desired_nodes"   { type = number  default = 3 }
 variable "min_nodes"       { type = number  default = 1 }
@@ -228,7 +232,7 @@ module "eks" {
 
 ## 3. Multi-Cloud: AWS + Azure in One Pipeline
 
-At Mareana we run workloads on both AWS (GKE/EKS) and Azure (AKS). Using provider aliasing, a single Terraform workspace can manage resources across both clouds.
+At Mareana we run workloads on both AWS EKS and Azure (AKS). Using provider aliasing, a single Terraform workspace can manage resources across both clouds.
 
 ```hcl
 # Provider configuration with aliases
@@ -473,7 +477,83 @@ output "db_password_arn" {
 
 ---
 
-## Results at Mareana
+## Which Modular Approach Should You Choose?
+
+There are several module architecture patterns in the Terraform ecosystem. Here's an honest comparison of the four most common, and when to use each.
+
+### Pattern 1: Three-Layer (Primitives → Compositions → Environments)
+*Used in this post — recommended for most teams*
+
+```
+modules/eks-cluster/    ← single-resource primitive
+compositions/aws-stack/ ← wires primitives together
+environments/prod/      ← thin config wrapper
+```
+
+**Choose when**: You have 5+ environments, multiple teams, or multi-cloud. This gives the best reuse-to-complexity ratio. Changes to a primitive propagate to all environments through compositions.
+
+**Avoid when**: You have only 1–2 environments. The extra indirection adds overhead without benefit.
+
+### Pattern 2: Flat Modules (Single Layer)
+
+```
+modules/eks-cluster/
+modules/rds-postgres/
+modules/vpc-network/
+environments/prod/main.tf  ← calls modules directly, no composition layer
+```
+
+**Choose when**: Small teams (1–3 engineers), 2–4 environments, simple infrastructure. Easy to understand, fast to iterate on.
+
+**Avoid when**: 10+ environments. You'll end up copy-pasting module calls across environment configs with slight variations.
+
+### Pattern 3: Terragrunt DRY Pattern
+
+```
+# terragrunt.hcl per environment — no copy-paste of backend config
+terraform {
+  source = "git::https://github.com/naik-org/terraform-modules.git//modules/eks-cluster?ref=v1.2.0"
+}
+
+inputs = {
+  cluster_name = "prod-us-east"
+  desired_nodes = 6
+}
+```
+
+**Choose when**: Large organizations with many environments where even environment-layer boilerplate (backend config, provider versions) becomes repetitive. Terragrunt eliminates all duplication.
+
+**Avoid when**: Your team isn't familiar with Terragrunt. The extra abstraction layer has a learning curve and makes debugging harder.
+
+### Pattern 4: Terraform Registry Modules (Public/Private)
+
+```hcl
+module "eks" {
+  source  = "terraform-aws-modules/eks/aws"
+  version = "= 20.14.0"   # Pin exact version
+
+  cluster_name = "prod-cluster"
+  # ... inputs
+}
+```
+
+**Choose when**: Using well-maintained community modules (e.g. `terraform-aws-modules`) for standard resources like VPCs, EKS, RDS. Saves months of work.
+
+**Avoid when**: You need tight control over every resource attribute, or when the community module adds resources you don't want. Forking a public module is worse than writing your own.
+
+### Decision Summary
+
+| Your Situation | Recommended Pattern |
+|---|---|
+| 1–2 environments, small team | Flat modules |
+| 3–10 environments, medium team | Three-layer (primitives → compositions → environments) |
+| 10+ environments, large org | Terragrunt DRY pattern |
+| Standard AWS/Azure resources | Registry modules + thin wrapper |
+| Multi-cloud, complex topology | Three-layer + provider aliasing |
+
+> **My recommendation**: Start with flat modules. Migrate to three-layer when you hit your third environment. Add Terragrunt only when backend config duplication becomes painful — usually around 8–10 environments.
+
+---
 
 Applying these patterns across our 35+ environment fleet:
 
@@ -499,7 +579,7 @@ Applying these patterns across our 35+ environment fleet:
 
 ## References
 
-- [Terraform S3 Backend Documentation](https://developer.hashicorp.com/terraform/language/settings/backends/s3)
-- [HashiCorp Module Registry](https://registry.terraform.io/)
-- [Terraform Workspace Docs](https://developer.hashicorp.com/terraform/cli/workspaces)
-- [AWS Provider Changelog](https://github.com/hashicorp/terraform-provider-aws/blob/main/CHANGELOG.md)
+- [Terraform S3 Backend](https://developer.hashicorp.com/terraform/language/settings/backends/s3)
+- [Terraform Module Development](https://developer.hashicorp.com/terraform/language/modules/develop)
+- [Terraform Workspaces](https://developer.hashicorp.com/terraform/cli/workspaces)
+- [Terraform Remote State Data Source](https://developer.hashicorp.com/terraform/language/state/remote-state-data)

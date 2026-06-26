@@ -9,6 +9,7 @@ import rehypeSlug from "rehype-slug";
 import { Calendar, Clock, ArrowLeft, ArrowRight, User } from "lucide-react";
 
 import { getPostBySlug, getAllPosts, getRelatedPosts, getPrevNextPosts } from "@/lib/blog";
+import ArchitectureDiagram from "@/components/blog/ArchitectureDiagram";
 import { mdxComponents } from "@/components/MdxComponents";
 import TableOfContents from "@/components/TableOfContents";
 import ReadingProgressBar from "@/components/ReadingProgressBar";
@@ -120,6 +121,11 @@ export default async function BlogPostPage({ params }: PageProps) {
     },
   };
 
+  const components = {
+    ...mdxComponents,
+    ArchitectureDiagram: () => <ArchitectureDiagram slug={slug} />,
+  };
+
   return (
     <div className="relative min-h-screen w-full flex flex-col overflow-x-hidden pb-16">
       {/* Scroll indicator progress bar */}
@@ -185,7 +191,7 @@ export default async function BlogPostPage({ params }: PageProps) {
             <div className="prose dark:prose-invert max-w-none text-sm text-foreground/90 leading-relaxed font-sans prose-headings:font-bold prose-headings:tracking-tight prose-a:text-brand-cyan hover:prose-a:underline prose-strong:text-foreground prose-strong:font-semibold prose-code:font-mono prose-code:text-xs dark:prose-code:text-brand-cyan/90 dark:prose-pre:bg-black/40">
               <MDXRemote
                 source={post.content}
-                components={mdxComponents}
+                components={components}
                 options={mdxOptions}
               />
             </div>

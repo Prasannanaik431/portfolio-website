@@ -21,9 +21,9 @@ I implemented a comprehensive **FinOps automation layer** that reduced non-produ
 kubectl top nodes --selector=env=dev
 
 # NAME                    CPU(cores)  CPU%   MEMORY(bytes)  MEMORY%
-# gke-dev-pool-1-abc123   45m         1%     2048Mi         8%
-# gke-dev-pool-1-def456   32m         0%     1890Mi         7%
-# gke-dev-pool-1-ghi789   28m         0%     1750Mi         6%
+# eks-dev-pool-1-abc123   45m         1%     2048Mi         8%
+# eks-dev-pool-1-def456   32m         0%     1890Mi         7%
+# eks-dev-pool-1-ghi789   28m         0%     1750Mi         6%
 ```
 
 Three nodes, running at **&lt;5% utilization**, costing ~$300/month — each. That&apos;s $900/month for idle dev nodes, multiplied across 20+ non-production environments.
@@ -34,6 +34,10 @@ The root causes:
 2. **No resource requests/limits** — pods had no guardrails, preventing HPA/CA from right-sizing
 3. **No visibility** — teams had no idea what their environment cost
 4. **Over-provisioning** — dev environments were provisioned identically to production
+
+<ArchitectureDiagram />
+
+> **Architecture at a glance:** EventBridge triggers scale node groups to zero after hours; Kubecost feeds Grafana dashboards so teams see cost per namespace. Kyverno enforces resource requests so the scheduler can actually right-size.
 
 ---
 
@@ -294,9 +298,7 @@ The Slack bot calls the same Lambda — no AWS console access needed.
 
 ## References
 
-- [AWS EKS Managed Node Groups Scaling](https://docs.aws.amazon.com/eks/latest/userguide/managed-node-groups.html)
+- [EKS Managed Node Groups](https://docs.aws.amazon.com/eks/latest/userguide/managed-node-groups.html)
 - [Kubernetes LimitRange](https://kubernetes.io/docs/concepts/policy/limit-range/)
-- [Kubecost Documentation](https://www.kubecost.com/kubernetes-cost-efficiency/)
-- [Kyverno Policy Catalog](https://kyverno.io/policies/)
+- [Kubecost Documentation](https://docs.kubecost.com/)
 - [AWS EventBridge Scheduled Rules](https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-scheduled-rule.html)
-- [CNCF FinOps for Kubernetes Whitepaper](https://www.cncf.io/reports/finops-for-kubernetes/)

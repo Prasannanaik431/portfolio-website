@@ -9,6 +9,7 @@ interface RoleDetails {
   department: string;
   company: string;
   period: string;
+  impact: string;
   skills: string[];
   points: string[];
   active?: boolean;
@@ -21,6 +22,7 @@ const ROLES: RoleDetails[] = [
     company: "Mareana Software Ltd",
     period: "Apr 2026 – Present",
     active: true,
+    impact: "Building self-service IDPs and policy-as-code so developers ship without waiting on platform tickets.",
     skills: [
       "Internal Developer Platform",
       "Self-service Infrastructure",
@@ -34,11 +36,11 @@ const ROLES: RoleDetails[] = [
       "Canary & Blue-Green",
     ],
     points: [
-      "Designing self-service Internal Developer Platforms (IDP) enabling developers to spin up application architectures independently.",
-      "Enforcing cluster security policies using Kyverno Policy-as-Code to secure multi-tenant GKE/AKS topologies.",
-      "Automating secrets rotations and lifecycle triggers using AWS Secrets Manager and Azure Key Vault mappings.",
-      "Building FinOps scheduled clusters automation, reducing non-prod resource consumption by scheduling automated cluster scaling.",
-      "Implementing platform level observability dashboards using Prometheus, Grafana, Kibana, and Elasticsearch.",
+      "Developers needed a way to spin up full stacks without Slack threads — IDP golden paths now let them provision architectures in minutes.",
+      "Multi-tenant EKS/AKS clusters had inconsistent security baselines — Kyverno policies reject non-compliant workloads at the API server.",
+      "Secrets rotation was manual and error-prone — AWS Secrets Manager and Azure Key Vault mappings automate lifecycle triggers.",
+      "Non-prod clusters burned budget 24/7 — FinOps scheduling scales node pools to zero after hours.",
+      "Outages meant digging through raw logs — Prometheus, Grafana, Kibana, and Elasticsearch dashboards built for on-call engineers.",
     ],
   },
   {
@@ -47,6 +49,7 @@ const ROLES: RoleDetails[] = [
     company: "Mareana Software Ltd",
     period: "Oct 2024 – Mar 2026",
     active: false,
+    impact: "Standardized 35+ environments and 100+ services — deploy time from hours to minutes, manual config nearly gone.",
     skills: [
       "35+ Environments",
       "Helm Framework",
@@ -59,11 +62,10 @@ const ROLES: RoleDetails[] = [
       "Slack/Email Alerts",
     ],
     points: [
-      "Managed and maintained cloud-infrastructure resources for 35+ non-production and production environments.",
-      "Created a reusable Helm deployment framework standardizing releases for 100+ services, reducing boilerplate YAML configurations by 90%.",
-      "Architected Groovy-based Jenkins Shared Libraries to modularize pipeline builds, embedding SonarQube quality gates and Dependency Track SBOM checks.",
-      "Provisioned infrastructure declaratively using Terraform and orchestrated node deployments using Ansible playbooks.",
-      "Built database management automations for PostgreSQL and Neo4j backups, migrations, and cluster scaling tasks.",
+      "35+ non-prod and production environments were snowflakes — Terraform and Ansible brought them under one declarative model with 99.999% SLO targets.",
+      "Every new microservice meant duplicating YAML — a reusable Helm framework cut boilerplate 95% and eliminated 99% of manual config across 100+ services.",
+      "Pipeline code was copy-pasted per repo — Groovy Jenkins Shared Libraries now power 100+ CI/CD pipelines with 95% faster release cycles.",
+      "Database ops were ticket-driven — PostgreSQL and Neo4j backup, migration, and scaling tasks run on automated schedules.",
     ],
   },
   {
@@ -72,11 +74,11 @@ const ROLES: RoleDetails[] = [
     company: "Mocha Works (Remote)",
     period: "Apr 2023 – Jan 2024",
     active: false,
+    impact: "Designed algorithmic challenges and reference solutions for competitive programming platforms.",
     skills: ["Algorithms", "Data Structures", "Problem Design", "Python", "C++", "Test Case Generation"],
     points: [
-      "Designed multi-difficulty algorithmic challenges with robust test cases for competitive programming platforms.",
-      "Validated problem logic, edge cases, and solution correctness collaborating with engineering teams using Python.",
-      "Implemented optimized C++ reference solutions and designed exhaustive test-case edge cases to validate candidate submissions.",
+      "Platforms needed fresh, well-tested problems — shipped multi-difficulty challenges with exhaustive edge-case coverage.",
+      "Reference solutions had to be correct under pressure — validated logic and test cases with engineering teams in Python and C++.",
     ],
   },
 ];
@@ -87,12 +89,15 @@ export default function Experience() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative">
         {/* Section Heading */}
         <div className="mb-16 text-left">
-          <h2 className="text-xs font-mono text-brand-cyan tracking-wider uppercase mb-2">
-            $ systemctl status career.service
+          <h2 className="text-xs font-mono text-brand-cyan tracking-wide mb-2">
+            $ cat experience.log
           </h2>
           <h3 className="text-3xl sm:text-4xl font-bold tracking-tight bg-gradient-to-r from-slate-950 via-slate-800 to-slate-600 bg-clip-text text-transparent dark:from-white dark:via-slate-200 dark:to-slate-400">
-            Work Experience
+            Two year, three roles, one mandate.
           </h3>
+          <p className="text-sm text-muted-foreground mt-3 max-w-2xl leading-relaxed">
+            Impact first. The responsibilities are on the résumé — these are the outcomes.
+          </p>
           <div className="h-1 w-12 bg-gradient-to-r from-brand-blue to-brand-cyan mt-3 rounded-full" />
         </div>
 
@@ -115,7 +120,7 @@ export default function Experience() {
             <p className="pl-4 flex items-center gap-1"><Clock className="h-3 w-3 text-brand-cyan" /> Main PID: 20241026 (platform-engineer)</p>
             <p className="pl-4">Tasks: 35+ running (limit: 512)</p>
             <p className="pl-4">CGroup: /system.slice/career.service</p>
-            <p className="pl-8">└─20241026 &quot;node --max-old-space-size=4096 GKE-Cluster-Operator&quot;</p>
+            <p className="pl-8">└─20241026 &quot;node --max-old-space-size=4096 EKS-Cluster-Operator&quot;</p>
           </div>
         </div>
 
@@ -158,6 +163,7 @@ export default function Experience() {
                       </span>
                     </h4>
                     <p className="text-sm font-medium text-muted-foreground mt-0.5">{role.company}</p>
+                    <p className="text-xs text-muted-foreground/90 mt-2 leading-relaxed max-w-xl">{role.impact}</p>
                   </div>
                   <div className="text-xs font-mono text-brand-blue bg-brand-blue/5 border border-brand-blue/20 px-3 py-1 rounded-full self-start md:self-center">
                     {role.period}
@@ -168,7 +174,7 @@ export default function Experience() {
                 <ul className="space-y-2 mb-6 text-sm text-muted-foreground">
                   {role.points.map((pt, pIdx) => (
                     <li key={pIdx} className="flex gap-2.5 items-start">
-                      <span className="mt-1 text-brand-cyan font-bold select-none">›</span>
+                      <span className="mt-0.5 text-green-500/90 select-none shrink-0">✓</span>
                       <span>{pt}</span>
                     </li>
                   ))}

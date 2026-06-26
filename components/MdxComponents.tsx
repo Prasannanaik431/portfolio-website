@@ -2,6 +2,7 @@
 
 import React, { useState, useRef } from "react";
 import { Copy, Check } from "lucide-react";
+import BlogFigure from "@/components/blog/BlogFigure";
 
 interface CodeBlockProps {
   children?: React.ReactNode;
@@ -91,4 +92,5 @@ export const mdxComponents = {
     );
   },
   pre: (props: React.ComponentPropsWithoutRef<"pre">) => <CodeBlock {...props} />,
+  BlogFigure,
 };
