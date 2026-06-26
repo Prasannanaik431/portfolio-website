@@ -1,66 +1,21 @@
 "use client";
 
-import React, { useEffect, useState, useRef } from "react";
-import { motion, useInView } from "framer-motion";
-
-interface StatItem {
-  target: number;
-  label: string;
-  suffix: string;
-}
-
-const STATS: StatItem[] = [
-  { target: 35, label: "Production Environments Managed", suffix: "+" },
-  { target: 80, label: "Deployment Time Reduction", suffix: "%" },
-  { target: 90, label: "Manual Configuration Reduced", suffix: "%" },
-  { target: 100, label: "CI/CD Deployments Automated", suffix: "+" },
-];
-
-function StatCounter({ target, suffix, duration = 1.5 }: { target: number; suffix: string; duration?: number }) {
-  const [count, setCount] = useState(0);
-  const elementRef = useRef<HTMLSpanElement>(null);
-  const isInView = useInView(elementRef, { once: true, margin: "-100px" });
-
-  useEffect(() => {
-    if (!isInView) return;
-
-    const end = target;
-    const totalFrames = Math.round(duration * 60);
-    let frame = 0;
-
-    const counter = () => {
-      frame++;
-      const progress = frame / totalFrames;
-      const currentCount = Math.round(end * progress);
-
-      if (frame < totalFrames) {
-        setCount(currentCount);
-        requestAnimationFrame(counter);
-      } else {
-        setCount(end);
-      }
-    };
-
-    requestAnimationFrame(counter);
-  }, [isInView, target, duration]);
-
-  return (
-    <span ref={elementRef} className="tabular-nums">
-      {count}
-      {suffix}
-    </span>
-  );
-}
+import React from "react";
+import ImpactStatGrid from "./ImpactStatGrid";
+import { IMPACT_YAML } from "@/lib/impact-stats";
 
 export default function About() {
   const yamlContent = `name: Prasanna Suresh Naik
-role: Platform Engineer & DevOps Engineer
-experience: 1.5+ years
+roles:
+  - Platform Engineer
+  - DevOps Engineer
+  - Cloud Engineer (AWS · Azure)
+  - Site Reliability Engineer (SRE)
+experience: 2 year
 location: Bengaluru, India
 email: prasannanaik431@gmail.com
 phone: +91 6362090078
 github: github.com/Prasannanaik431
-leetcode: leetcode.com/u/prasannanaik431
 linkedin: linkedin.com/in/prasanna-naik-40124b1ba
 
 education:
@@ -69,32 +24,52 @@ education:
   year: 2020 – 2024
   cgpa: 8.33 / 10
 
-specialization:
-  - Kubernetes Platform Engineering
+platform_engineering:
   - Internal Developer Platforms (IDP)
-  - GitOps Workflows (Flux2)
-  - Terraform & Ansible (IaC)
-  - DevSecOps & Kyverno Policy Engine
-  - Secrets Management (AWS + Azure KV)
-  - Observability (Prometheus/Grafana/ELK)
+  - Golden Paths & Self-Service Templates
+  - Helm Framework (100+ microservices)
+  - GitOps Workflows (Flux2 / ArgoCD)
 
-impact:
-  environments: 35+ production envs managed
-  deploy_speed: 80% reduction in deploy time
-  automation: 90% manual config eliminated
-  services: 100+ microservices on Helm framework`;
+devops:
+  - Jenkins Groovy Shared Libraries
+  - Multi-stage CI/CD Pipelines
+  - SonarQube · Dependency Track (SBOM)
+  - Docker · Containerization at Scale
+
+cloud:
+  - AWS: EKS, Secrets Manager, Lambda, S3
+  - Azure: AKS, Key Vault, ACI, AD
+  - Terraform IaC · Ansible Playbooks
+  - Multi-cloud Provider Aliasing
+
+sre:
+  - SLO / SLA / Error Budget Tracking
+  - Prometheus · Grafana · ELK Stack
+  - Incident Response & Postmortem Culture
+  - FinOps & Cost Optimization (40% savings)
+
+devsecops:
+  - Kyverno Policy-as-Code
+  - Secrets Lifecycle (AWS + Azure KV)
+  - SBOM · Supply Chain Security
+  - Zero-trust Cluster Hardening
+
+${IMPACT_YAML}`;
 
   return (
     <section id="about" className="py-24 relative overflow-hidden">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative">
         {/* Section Heading */}
         <div className="mb-16 text-left">
-          <h2 className="text-xs font-mono text-brand-cyan tracking-wider uppercase mb-2">
+          <h2 className="text-xs font-mono text-brand-cyan tracking-wide mb-2">
             $ cat /var/log/about_me.log
           </h2>
           <h3 className="text-3xl sm:text-4xl font-bold tracking-tight bg-gradient-to-r from-slate-950 via-slate-800 to-slate-600 bg-clip-text text-transparent dark:from-white dark:via-slate-200 dark:to-slate-400">
-            Professional Summary
+            I build the boring kind of reliability.
           </h3>
+          <p className="text-sm text-muted-foreground mt-3 max-w-2xl leading-relaxed">
+            The kind that lets platform teams ship fast, scale across clouds, and sleep through the night.
+          </p>
           <div className="h-1 w-12 bg-gradient-to-r from-brand-blue to-brand-cyan mt-3 rounded-full" />
         </div>
 
@@ -130,33 +105,17 @@ impact:
           <div className="lg:col-span-6 space-y-8 text-left">
             <div className="space-y-4 text-muted-foreground text-sm leading-relaxed">
               <p>
-                I am a passionate <strong className="text-foreground font-semibold">Platform & DevOps Engineer</strong> with 1.5+ years of production experience designing and automating robust infrastructure pipelines across 35+ environments. My expertise focuses on building enterprise GitOps models, Helm framework standards, and secure CI/CD loops.
+                I&apos;m a <strong className="text-foreground font-semibold">Platform · DevOps · Cloud · SRE Engineer</strong> in Bengaluru with <strong className="text-foreground font-semibold">2 year</strong> in production — building Internal Developer Platforms, multi-cloud infrastructure on AWS and Azure, and the GitOps and CI/CD pipelines that keep releases predictable.
               </p>
               <p>
-                My ultimate goal is to bridge the gap between development and operations. I build internal developer self-service tooling, enforce policy-as-code guards with Kyverno, and leverage LLMs to perform automated log analysis, reducing operational complexity and driving developer velocity.
+                At Mareana, <strong className="text-foreground font-semibold">35+ environments</strong> across AWS EKS and Azure AKS used to mean copy-pasted YAML and hours-long deploys. I replaced that with a Helm golden path, Kyverno policy-as-code, and shared Jenkins libraries — <strong className="text-foreground font-semibold">95% faster deployments</strong>, <strong className="text-foreground font-semibold">99% less manual configuration</strong>, and <strong className="text-foreground font-semibold">100+ pipelines</strong> teams run without filing a ticket. The platform holds a <strong className="text-foreground font-semibold">99.999% uptime SLO</strong> while FinOps automation cut non-prod spend by 40%.
+              </p>
+              <p>
+                Great platform work is invisible — developers get self-service, security is enforced before code hits the cluster, and the on-call engineer gets context before the dashboard loads.
               </p>
             </div>
 
-            {/* Counters Grid */}
-            <div className="grid grid-cols-2 gap-6 pt-4">
-              {STATS.map((stat, idx) => (
-                <motion.div
-                  key={idx}
-                  initial={{ opacity: 0, y: 15 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true }}
-                  transition={{ delay: idx * 0.1, duration: 0.4 }}
-                  className="p-4 rounded-lg bg-white/[0.01] dark:bg-white/[0.01] border border-black/5 dark:border-white/5 shadow-sm"
-                >
-                  <div className="text-3xl font-extrabold font-mono text-brand-cyan mb-1.5">
-                    <StatCounter target={stat.target} suffix={stat.suffix} />
-                  </div>
-                  <div className="text-xs text-muted-foreground font-medium leading-normal">
-                    {stat.label}
-                  </div>
-                </motion.div>
-              ))}
-            </div>
+            <ImpactStatGrid className="pt-2" />
           </div>
         </div>
       </div>

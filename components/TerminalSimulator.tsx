@@ -4,6 +4,8 @@ import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Copy, Check, RefreshCw } from "lucide-react";
 
+import { KUBERNETES_VERSION } from "@/lib/platform-versions";
+
 interface CommandTab {
   id: string;
   label: string;
@@ -23,13 +25,15 @@ const COMMAND_TABS: CommandTab[] = [
       "   \\  - /       Kernel: Linux 5.15.0-101-generic",
       "    `---'       Uptime: 247 days, 6 hours, 12 mins",
       "                Shell: zsh 5.8.1",
-      "                Platform: Kubernetes v1.28 (GKE)",
+      `                Platform: Kubernetes v${KUBERNETES_VERSION} (AWS EKS)`,
       "                GitOps: Flux2 & ArgoCD",
       "                Infrastructure: AWS & Azure",
       "                CPU: AMD EPYC (64 cores) @ 2.50GHz",
       "                Memory: 16.4 GiB / 256 GiB (6%)",
-      "                Active Env: 35+ Production Clusters",
-      "                Deployment: Canary & Blue-Green",
+      "                Environments: 35+ Production (EKS/AKS)",
+      "                CI/CD: 100+ Pipelines · 95% Faster Deploys",
+      "                Automation: 99% Manual Config Eliminated",
+      "                Uptime SLO: 99.999% · Platform Engineer",
       "                Security: Kyverno Policy-as-Code",
       "                Observability: Prometheus & Grafana",
     ],
@@ -40,11 +44,11 @@ const COMMAND_TABS: CommandTab[] = [
     command: "kubectl get pods -n prod-ems -o wide",
     output: [
       "NAME                           READY   STATUS    RESTARTS   AGE    IP            NODE",
-      "ems-api-6f4b9cdb48-abcde       1/1     Running   0          12d    10.244.2.14   gke-prod-pool-1",
-      "ems-api-6f4b9cdb48-fghij       1/1     Running   0          12d    10.244.1.89   gke-prod-pool-2",
-      "ems-worker-7d8e9f0a1b-cdefg    1/1     Running   0          3d4h   10.244.2.40   gke-prod-pool-1",
-      "db-postgre-0                   1/1     Running   0          45d    10.244.0.12   gke-prod-pool-3",
-      "cache-redis-78bfb9cd4e-xyz78   1/1     Running   0          45d    10.244.1.5    gke-prod-pool-2",
+      "ems-api-6f4b9cdb48-abcde       1/1     Running   0          12d    10.244.2.14   eks-prod-pool-1",
+      "ems-api-6f4b9cdb48-fghij       1/1     Running   0          12d    10.244.1.89   eks-prod-pool-2",
+      "ems-worker-7d8e9f0a1b-cdefg    1/1     Running   0          3d4h   10.244.2.40   eks-prod-pool-1",
+      "db-postgre-0                   1/1     Running   0          45d    10.244.0.12   eks-prod-pool-3",
+      "cache-redis-78bfb9cd4e-xyz78   1/1     Running   0          45d    10.244.1.5    eks-prod-pool-2",
     ],
   },
   {
@@ -122,12 +126,12 @@ const COMMAND_TABS: CommandTab[] = [
   {
     id: "docker",
     label: "docker",
-    command: "docker buildx build --platform linux/amd64,linux/arm64 -t gcr.io/naik-prod/ems-service:v1.2.0 --push .",
+    command: "docker buildx build --platform linux/amd64,linux/arm64 -t 123456789012.dkr.ecr.us-east-1.amazonaws.com/naik-prod/ems-service:v1.2.0 --push .",
     output: [
       "[internal] load build definition from Dockerfile",
       "[internal] load .dockerignore",
       "[internal] load metadata for docker.io/library/golang:1.22-alpine",
-      "[auth] sharing credentials for gcr.io",
+      "[auth] sharing credentials for ECR",
       "[build 1/4] FROM docker.io/library/golang:1.22-alpine",
       "[build 2/4] WORKDIR /app",
       "[build 3/4] COPY go.mod go.sum ./ && RUN go mod download",
@@ -135,8 +139,8 @@ const COMMAND_TABS: CommandTab[] = [
       "exporting to image:",
       "✔ exporting layers",
       "✔ writing image sha256:7f8047970d4b1a45749f7831d1d8a8b1a7d3c01c0c6c",
-      "✔ naming to gcr.io/naik-prod/ems-service:v1.2.0",
-      "✔ pushing layers to gcr.io/naik-prod/ems-service:v1.2.0",
+      "✔ naming to 123456789012.dkr.ecr.us-east-1.amazonaws.com/naik-prod/ems-service:v1.2.0",
+      "✔ pushing layers to 123456789012.dkr.ecr.us-east-1.amazonaws.com/naik-prod/ems-service:v1.2.0",
     ],
   },
 ];

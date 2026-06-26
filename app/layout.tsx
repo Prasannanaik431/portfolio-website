@@ -7,26 +7,39 @@ import { getAllPosts } from "@/lib/blog";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Prasanna Suresh Naik | Platform & DevOps Engineer",
+  title: "Prasanna Suresh Naik | Platform · DevOps · Cloud · SRE Engineer",
   description:
-    "Platform Engineer specializing in Kubernetes, Internal Developer Platforms, GitOps, AWS, Azure, DevSecOps, Infrastructure Automation, Platform Reliability and Developer Experience.",
+    "Platform, DevOps, Cloud & SRE Engineer — 2 year in production, 35+ K8s environments, 95% faster deployments, 100+ CI/CD pipelines, 99% config automation, 99.999% uptime SLO.",
   keywords: [
     "Prasanna Suresh Naik",
     "Platform Engineer",
     "DevOps Engineer",
-    "Kubernetes Specialist",
+    "Cloud Engineer",
+    "Site Reliability Engineer",
+    "SRE",
+    "Kubernetes",
     "GitOps",
     "Flux2",
     "Terraform",
     "Infrastructure as Code",
     "Internal Developer Platforms",
-    "SaaS Infrastructure",
+    "IDP",
+    "AWS EKS",
+    "Azure AKS",
+    "DevSecOps",
+    "Kyverno",
+    "Helm",
+    "Jenkins",
+    "FinOps",
+    "Observability",
+    "Prometheus",
+    "Grafana",
   ],
   authors: [{ name: "Prasanna Suresh Naik" }],
   openGraph: {
-    title: "Prasanna Suresh Naik | Platform & DevOps Engineer",
+    title: "Prasanna Suresh Naik | Platform · DevOps · Cloud · SRE Engineer",
     description:
-      "Platform Engineer specializing in Kubernetes, Internal Developer Platforms, GitOps, AWS, Azure, DevSecOps, Infrastructure Automation, Platform Reliability and Developer Experience.",
+      "Platform, DevOps, Cloud & SRE Engineer — Kubernetes, Internal Developer Platforms, GitOps, AWS, Azure, DevSecOps, SLO Reliability, and Infrastructure Automation.",
     url: "https://prasannanaik.com",
     siteName: "Prasanna Suresh Naik Portfolio",
     locale: "en_US",
@@ -34,9 +47,9 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "Prasanna Suresh Naik | Platform & DevOps Engineer",
+    title: "Prasanna Suresh Naik | Platform · DevOps · Cloud · SRE Engineer",
     description:
-      "Platform Engineer specializing in Kubernetes, Internal Developer Platforms, GitOps, AWS, Azure, DevSecOps, Infrastructure Automation, Platform Reliability and Developer Experience.",
+      "Platform, DevOps, Cloud & SRE Engineer — Kubernetes, IDP, GitOps, AWS, Azure, DevSecOps, FinOps.",
   },
   robots: {
     index: true,
@@ -54,23 +67,36 @@ export default function RootLayout({
     "@context": "https://schema.org",
     "@type": "Person",
     "name": "Prasanna Suresh Naik",
-    "jobTitle": "Platform Engineer / DevOps Engineer",
+    "jobTitle": "Platform Engineer · DevOps Engineer · Cloud Engineer · SRE",
     "url": "https://prasannanaik.com",
     "sameAs": [
       "https://linkedin.com/in/prasanna-naik-40124b1ba",
-      "https://leetcode.com/prasannanaik"
+      "https://github.com/Prasannanaik431",
+      "https://leetcode.com/u/prasannanaik431"
     ],
     "knowsAbout": [
-      "Kubernetes",
-      "DevOps",
       "Platform Engineering",
+      "DevOps Engineering",
+      "Cloud Engineering",
+      "Site Reliability Engineering",
+      "Kubernetes",
       "GitOps",
+      "Flux2",
+      "ArgoCD",
       "Terraform",
       "Ansible",
       "AWS",
       "Azure",
       "DevSecOps",
-      "Observability"
+      "Kyverno",
+      "Helm",
+      "Jenkins",
+      "Internal Developer Platforms",
+      "FinOps",
+      "Observability",
+      "Prometheus",
+      "Grafana",
+      "Elasticsearch"
     ]
   };
 

@@ -138,7 +138,7 @@ export default function KubernetesClusterVisual() {
           </text>
         </g>
 
-        {/* --- NODE 1 (GKE-Node-Pool-1) --- */}
+        {/* --- NODE 1 (EKS-Node-Pool-1) --- */}
         <g transform="translate(45, 180)">
           {/* Node base frame */}
           <rect width="100" height="110" rx="10" fill="#111827" stroke="rgba(255,255,255,0.1)" strokeWidth="1.5" />
@@ -178,7 +178,7 @@ export default function KubernetesClusterVisual() {
           <text x="50" y="95" fill="rgba(255,255,255,0.6)" fontSize="6" fontFamily="monospace" textAnchor="middle">db-proxy</text>
         </g>
 
-        {/* --- NODE 2 (GKE-Node-Pool-2) --- */}
+        {/* --- NODE 2 (EKS-Node-Pool-2) --- */}
         <g transform="translate(200, 180)">
           {/* Node base frame */}
           <rect width="100" height="110" rx="10" fill="#111827" stroke="rgba(255,255,255,0.1)" strokeWidth="1.5" />
@@ -218,7 +218,7 @@ export default function KubernetesClusterVisual() {
           <text x="50" y="95" fill="rgba(255,255,255,0.6)" fontSize="6" fontFamily="monospace" textAnchor="middle">cache</text>
         </g>
 
-        {/* --- NODE 3 (GKE-Node-Pool-3) --- */}
+        {/* --- NODE 3 (EKS-Node-Pool-3) --- */}
         <g transform="translate(355, 180)">
           {/* Node base frame */}
           <rect width="100" height="110" rx="10" fill="#111827" stroke="rgba(255,255,255,0.1)" strokeWidth="1.5" />

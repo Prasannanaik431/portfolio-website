@@ -206,12 +206,15 @@ export default function Contact() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative">
         {/* Section Heading */}
         <div className="mb-16 text-left">
-          <h2 className="text-xs font-mono text-brand-cyan tracking-wider uppercase mb-2">
-            $ ssh admin@prasanna.naik -p 443
+          <h2 className="text-xs font-mono text-brand-cyan tracking-wide mb-2">
+            $ ./say-hello.sh
           </h2>
           <h3 className="text-3xl sm:text-4xl font-bold tracking-tight bg-gradient-to-r from-slate-950 via-slate-800 to-slate-600 bg-clip-text text-transparent dark:from-white dark:via-slate-200 dark:to-slate-400">
-            Establish Connection
+            Let&apos;s build something that stays calm at scale.
           </h3>
+          <p className="text-sm text-muted-foreground mt-3 max-w-2xl leading-relaxed">
+            Scaling a platform, standardizing Kubernetes, or wiring GitOps from scratch — I&apos;d love to be part of that conversation.
+          </p>
           <div className="h-1 w-12 bg-gradient-to-r from-brand-blue to-brand-cyan mt-3 rounded-full" />
         </div>
 
@@ -409,6 +412,7 @@ export default function Contact() {
                     <div className="pt-4 select-none">
                       <button
                         type="submit"
+                        suppressHydrationWarning
                         className="group flex items-center justify-center gap-2 rounded bg-gradient-to-r from-brand-blue to-brand-cyan px-6 py-2.5 text-xs font-semibold text-white shadow-lg hover:shadow-cyan-500/20 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer w-full sm:w-auto"
                       >
                         <Send className="h-3.5 w-3.5" />
@@ -479,7 +483,7 @@ export default function Contact() {
                         <div><span className="text-brand-cyan font-bold">HTTP/2 200 OK</span></div>
                         <div><span className="text-muted-foreground">content-type:</span> application/json</div>
                         <div><span className="text-muted-foreground">date:</span> {new Date().toUTCString()}</div>
-                        <div><span className="text-muted-foreground">server:</span> Cloudflare/GKE-Ingress</div>
+                        <div><span className="text-muted-foreground">server:</span> Cloudflare/AWS-ALB-Ingress</div>
                       </div>
 
                       {/* JSON Response Block */}

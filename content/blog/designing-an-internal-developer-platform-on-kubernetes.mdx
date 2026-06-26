@@ -1,77 +1,544 @@
 ---
 title: "Designing an Internal Developer Platform on Kubernetes"
 date: "2026-06-10"
-excerpt: "Explore the architecture of custom developer portals, Golden Paths templates, and API integrations that boost developer experience."
+excerpt: "Explore the full architecture of a production Internal Developer Platform — Golden Paths, self-service portals, Kubernetes operators, and GitOps automation that boost developer experience and platform governance."
 tags: ["Platform Engineering", "IDP", "Kubernetes", "Developer Experience"]
 cover: "/blog/idp-cover.svg"
 author: "Prasanna Suresh Naik"
-readTime: "8 min read"
+readTime: "18 min read"
 slug: "designing-an-internal-developer-platform-on-kubernetes"
 ---
 
 # Designing an Internal Developer Platform on Kubernetes
 
-Modern Kubernetes platforms are incredibly powerful, but exposing direct raw YAML configs to product engineers can result in configuration drift, steep learning curves, and security vulnerabilities. 
+When a platform team manages 100+ microservices across 35+ environments, every minute a developer spends fighting infrastructure is a minute they're not building product. An **Internal Developer Platform (IDP)** solves this by packaging infrastructure complexity into self-service workflows — developers get what they need, platform teams maintain governance.
 
-An **Internal Developer Platform (IDP)** bridges this gap by creating self-service infrastructure portals, standardizing deployment structures, and shielding developers from complex operations.
-
----
-
-## 1. What is an IDP?
-
-An IDP is a set of tools, services, and technologies that platform engineering teams package into a product. It allows application developers to self-service:
-1. **Application Scaffolding**: Pre-packaged templates containing basic code.
-2. **Database Provisioning**: One-click databases with backups and configurations pre-applied.
-3. **Environment Lifecycles**: Provisioning test, sandbox, and staging environments dynamically.
-4. **CI/CD Triggers**: Automating repository webhooks, build checks, and deployment manifests.
+At Mareana, I designed and built the IDP that reduced environment provisioning from 1–2 days to under 30 minutes, eliminated manual ticket filing for infrastructure requests, and gave every team the same production-grade security baseline out of the box.
 
 ---
 
-## 2. Platform Architecture & Golden Paths
+## What is an IDP — Really?
 
-To build a solid platform, you establish **Golden Paths**—pre-validated, secure pathways for shipping services. Here's a common blueprint:
+An IDP is not a product you buy. It's a capability your platform team builds by composing existing tools into a coherent developer experience. The goal is **Golden Paths** — opinionated, pre-validated routes for common tasks that are fast, secure, and consistent.
+
+The difference between an IDP and "just some scripts":
+- **Self-service**: Developers trigger workflows themselves, without filing tickets
+- **Opinionated**: The platform makes smart defaults so developers don't need infrastructure expertise
+- **Observable**: Every action is auditable and monitored
+- **Evolvable**: The platform improves over time without breaking existing workloads
+
+---
+
+## IDP Architecture Overview
+
+<ArchitectureDiagram />
+
+> **Architecture at a glance:** Developers never touch raw Terraform or kubectl. Backstage templates call a Platform API that provisions via GitOps commits and Kubernetes operators.
 
 ```
-[Developer Portal / UI] ──> [Platform API] ──> [GitRepository (GitOps)]
-                                   │
-                                   ├──> [Terraform Controller] ──> AWS / Azure
-                                   └──> [K8s Operator] ──> App Namespaces
+┌─────────────────────────────────────────────────────────────────────┐
+│                        Developer Interface                           │
+│                                                                      │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────────┐  │
+│  │  Backstage   │  │  Slack Bot   │  │  GitOps PR / Self-service │  │
+│  │  (UI Portal) │  │  /deploy cmd │  │  Template Catalog         │  │
+│  └──────┬───────┘  └──────┬───────┘  └──────────┬───────────────┘  │
+│         └─────────────────┼──────────────────────┘                  │
+└─────────────────────────┬─┼────────────────────────────────────────-┘
+                          │ │
+                          ▼ ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                       Platform API (FastAPI)                         │
+│                                                                      │
+│  /environments    /services     /databases    /secrets              │
+│  (CRUD)           (scaffold)    (provision)   (rotate)              │
+└──────────────────────────┬──────────────────────────────────────────┘
+                           │
+          ┌────────────────┼────────────────┐
+          ▼                ▼                ▼
+┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐
+│   Git Repo   │  │  Terraform   │  │  Kubernetes Operator  │
+│  (GitOps)    │  │  (Cloud IaC) │  │  (DeveloperEnv CRD)   │
+│              │  │              │  │                        │
+│  Flux2       │  │  AWS/Azure   │  │  Namespace + RBAC      │
+│  reconciles  │  │  resources   │  │  + NetworkPolicy       │
+└──────────────┘  └──────────────┘  └──────────────────────┘
+          │                                   │
+          └──────────────────┬────────────────┘
+                             ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                   Kubernetes Cluster (AWS EKS/Azure AKS)                  │
+│                                                                      │
+│  namespace: prod-billing    namespace: staging-billing               │
+│  namespace: prod-payments   namespace: dev-payments                  │
+│  namespace: prod-auth       namespace: sandbox-auth                  │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 3. Scaffolding dynamic Namespaces via CRDs
+## 1. The Developer Portal: Backstage
 
-Rather than writing custom microservice interfaces, we can define custom cluster resources (Custom Resource Definitions) to manage developer environments:
+[Backstage](https://backstage.io) is the CNCF-graduated developer portal that serves as the front door to the IDP. At Mareana, we customized it with three core plugins:
+
+### Software Catalog
+
+Every service, database, and infrastructure component is registered in the catalog:
 
 ```yaml
+# catalog-info.yaml (lives in each service repo)
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: payment-service
+  description: Payment processing microservice
+  annotations:
+    github.com/project-slug: naik-org/payment-service
+    prometheus.io/dashboard: "https://grafana.ems.internal/d/payment-service"
+    runbook: "https://wiki.ems.internal/runbooks/payment-service"
+    platform.naik.org/team: billing-team
+    platform.naik.org/tier: "1"  # Tier-1 = highest SLA
+spec:
+  type: service
+  lifecycle: production
+  owner: billing-team
+  system: ems-platform
+  dependsOn:
+    - component:postgres-billing-db
+    - component:redis-cache
+  providesApis:
+    - payment-api-v2
+```
+
+### Software Templates (Golden Paths)
+
+Templates are the core of the IDP — developers create new services by filling out a form:
+
+```yaml
+# templates/go-microservice.yaml
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: go-microservice
+  title: Go Microservice
+  description: Creates a new production-ready Go microservice with CI/CD, monitoring, and security baselines
+  tags: [go, microservice, kubernetes]
+spec:
+  owner: platform-team
+  type: service
+
+  parameters:
+    - title: Service Details
+      required: [name, team, description]
+      properties:
+        name:
+          title: Service Name
+          type: string
+          pattern: '^[a-z][a-z0-9-]{2,50}$'
+        team:
+          title: Owning Team
+          type: string
+          enum: [billing-team, payments-team, auth-team, platform-team]
+        description:
+          title: Service Description
+          type: string
+        tier:
+          title: SLA Tier
+          type: string
+          enum: ["1", "2", "3"]
+          default: "2"
+
+    - title: Infrastructure
+      properties:
+        database:
+          title: Needs PostgreSQL database?
+          type: boolean
+          default: false
+        cacheRedis:
+          title: Needs Redis cache?
+          type: boolean
+          default: false
+        publicIngress:
+          title: Public ingress (external traffic)?
+          type: boolean
+          default: false
+
+  steps:
+    - id: fetch-template
+      name: Fetch Base Template
+      action: fetch:template
+      input:
+        url: ./skeleton
+        values:
+          name: ${{ parameters.name }}
+          team: ${{ parameters.team }}
+          tier: ${{ parameters.tier }}
+
+    - id: create-github-repo
+      name: Create GitHub Repository
+      action: github:repo:create
+      input:
+        repoUrl: github.com?owner=naik-org&repo=${{ parameters.name }}
+        defaultBranch: main
+
+    - id: push-code
+      name: Push Template Code
+      action: github:repo:push
+      input:
+        repoUrl: github.com?owner=naik-org&repo=${{ parameters.name }}
+        branchName: main
+
+    - id: trigger-platform-api
+      name: Register Service in Platform
+      action: http:backstage:request
+      input:
+        method: POST
+        path: /api/proxy/platform-api/services
+        body:
+          name: ${{ parameters.name }}
+          team: ${{ parameters.team }}
+          tier: ${{ parameters.tier }}
+          database: ${{ parameters.database }}
+          redis: ${{ parameters.cacheRedis }}
+
+  output:
+    links:
+      - title: GitHub Repository
+        url: ${{ steps['create-github-repo'].output.remoteUrl }}
+      - title: Service in Catalog
+        url: /catalog/default/component/${{ parameters.name }}
+```
+
+When a developer fills this form, Backstage automatically: creates the GitHub repo, scaffolds Go code with Dockerfile and Helm values, registers the service in the catalog, and calls the Platform API to provision any requested databases.
+
+---
+
+## 2. Platform API: The Automation Backend
+
+The Platform API is a FastAPI service that orchestrates all infrastructure operations. It's the bridge between the developer portal and the actual infrastructure:
+
+```python
+# platform_api/routers/environments.py
+
+from fastapi import APIRouter, BackgroundTasks, HTTPException
+from pydantic import BaseModel
+from ..services.kubernetes import create_namespace, apply_kustomization
+from ..services.terraform import run_terraform
+from ..services.git import commit_environment_config
+from ..services.slack import notify_team
+
+router = APIRouter(prefix="/environments", tags=["environments"])
+
+class EnvironmentRequest(BaseModel):
+    name: str           # e.g. "billing-qa-sprint42"
+    team: str           # e.g. "billing-team"
+    base_env: str       # e.g. "staging" (copy config from this)
+    ttl_hours: int = 72 # Auto-expire after 72 hours
+    services: list[str] # Which services to deploy
+
+@router.post("/")
+async def create_environment(req: EnvironmentRequest, background: BackgroundTasks):
+    """
+    Provision a complete ephemeral environment for a team.
+    Returns immediately; provisioning runs in background.
+    """
+    env_id = f"{req.team}-{req.name}"
+
+    # Validate team has quota for new environments
+    existing = await get_team_environments(req.team)
+    if len(existing) >= 3:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Team {req.team} has reached the 3 environment limit. Delete one first."
+        )
+
+    background.add_task(provision_environment, req, env_id)
+    return {"env_id": env_id, "status": "provisioning", "estimated_ready": "5 minutes"}
+
+async def provision_environment(req: EnvironmentRequest, env_id: str):
+    """Background task: full environment provisioning pipeline."""
+    try:
+        # Step 1: Create Kubernetes namespace with all labels
+        await create_namespace(env_id, labels={
+            "team": req.team,
+            "environment": req.name,
+            "platform.naik.org/managed": "true",
+            "platform.naik.org/ttl": str(req.ttl_hours),
+        })
+
+        # Step 2: Commit environment config to Git (Flux picks it up)
+        await commit_environment_config(
+            env_id=env_id,
+            base_env=req.base_env,
+            services=req.services
+        )
+
+        # Step 3: Wait for Flux to reconcile
+        await wait_for_flux_reconciliation(env_id, timeout_minutes=10)
+
+        # Step 4: Run database migrations if needed
+        if req.base_env in ["staging", "prod"]:
+            await run_db_migrations(env_id)
+
+        # Step 5: Notify team
+        await notify_team(
+            channel=f"#{req.team}",
+            message=f"✅ Environment `{env_id}` is ready!\n"
+                   f"URL: https://{env_id}.ems.internal\n"
+                   f"Auto-expires in {req.ttl_hours}h"
+        )
+
+    except Exception as e:
+        await notify_team(
+            channel=f"#{req.team}",
+            message=f"❌ Environment `{env_id}` provisioning failed: {str(e)}"
+        )
+        raise
+```
+
+---
+
+## 3. The DeveloperEnvironment Custom Resource
+
+For more complex environments, we use a Kubernetes Custom Resource Definition that a custom operator watches:
+
+```yaml
+# CRD: Developer declares what they need
 apiVersion: platform.naik.org/v1alpha1
 kind: DeveloperEnvironment
 metadata:
-  name: billing-service-staging
+  name: billing-sprint42
   namespace: platform-system
+  labels:
+    team: billing-team
+    ttl: "72h"
 spec:
   owner: billing-team
-  projectName: billing-service
+  displayName: "Sprint 42 Integration Test"
+
+  services:
+    - name: billing-service
+      imageTag: "pr-142"          # Deploy a PR build
+    - name: payment-service
+      imageTag: "v5.1.0"          # Stable version
+    - name: auth-service
+      imageTag: "v3.4.1"
+
   database:
     engine: postgres
     version: "15"
-    storageGb: 20
+    storageGb: 10
+    seedFrom: staging             # Seed with anonymised staging data
+
   ingress:
-    subdomain: billing-stage
+    subdomain: billing-sprint42   # → billing-sprint42.ems.internal
+    auth:
+      enabled: true
+      provider: google-oauth2     # Only billing-team@company.com can access
+
   resources:
-    profile: medium # Resolves to predefined CPU/Mem allocations
+    profile: medium               # Resolves to 2 CPU, 4Gi mem per service
+    autoscaling: false            # Dev envs don't autoscale
+
+  scheduling:
+    startTime: "08:00"
+    stopTime: "20:00"
+    timezone: "Asia/Kolkata"
+    stopOnWeekends: true
+```
+
+The custom operator watches for `DeveloperEnvironment` resources and reconciles the full stack automatically.
+
+---
+
+## 4. Kustomize Overlays: Environment-Specific Config
+
+Each environment is a Kustomize overlay on top of base configs. The Platform API commits these to Git:
+
+```yaml
+# environments/billing-sprint42/kustomization.yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base/billing-service
+  - ../../base/payment-service
+
+namespace: env-billing-sprint42
+
+commonLabels:
+  environment: billing-sprint42
+  team: billing-team
+
+patches:
+  # Override image tags to PR builds
+  - patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/image
+        value: 123456789012.dkr.ecr.us-east-1.amazonaws.com/naik-prod/billing-service:pr-142
+    target:
+      kind: Deployment
+      name: billing-service
+
+  # Scale down to 1 replica (not production load)
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+    target:
+      kind: Deployment
 ```
 
 ---
 
-## 4. Automating Database Deployments
+## 5. Self-Service Database Provisioning
 
-Once the custom operator detects a `DeveloperEnvironment` resource, it triggers Ansible or Terraform scripts to provision the Postgres DB and sets up a sealed secret:
+One of the most-used IDP features is one-click database provisioning. A developer requests a PostgreSQL database via the Backstage UI; the Platform API calls Terraform:
 
-```bash
-# Verify database operator execution logs
-kubectl logs -f deployment/db-provisioner-operator -n platform-system
+```python
+# platform_api/services/database.py
+
+async def provision_postgres(
+    env_id: str,
+    version: str,
+    storage_gb: int,
+    seed_from: str | None = None
+):
+    """Provision a PostgreSQL instance for an environment."""
+
+    # Generate Terraform vars
+    tf_vars = {
+        "db_identifier":  f"ems-{env_id}",
+        "engine_version": version,
+        "storage_gb":     storage_gb,
+        "instance_class": "db.t3.medium",  # Non-prod size
+        "namespace":      f"env-{env_id}",
+    }
+
+    # Run Terraform in isolated workspace
+    result = await run_terraform(
+        module="modules/rds-postgres",
+        workspace=env_id,
+        vars=tf_vars,
+        action="apply"
+    )
+
+    db_endpoint = result["outputs"]["db_endpoint"]["value"]
+    db_password_arn = result["outputs"]["db_password_arn"]["value"]
+
+    # Store credentials in AWS Secrets Manager
+    secret_name = f"platform/{env_id}/db-credentials"
+    await create_secret(secret_name, {
+        "host":     db_endpoint,
+        "port":     "5432",
+        "username": "app_user",
+        "password": await generate_secure_password(),
+        "dbname":   env_id.replace("-", "_")
+    })
+
+    # Create ExternalSecret so the app namespace can access it
+    await apply_external_secret(
+        namespace=f"env-{env_id}",
+        secret_name="db-credentials",
+        secret_store_ref=secret_name
+    )
+
+    # Seed data if requested
+    if seed_from:
+        await run_db_seed_job(env_id, seed_from)
+
+    return {"endpoint": db_endpoint, "secret": secret_name}
 ```
 
-By providing these abstract controls, developers can build, run, and scale applications safely without manual ticket filing, improving release cycles while retaining platform governance.
+---
+
+## 6. Environment Lifecycle Management
+
+Environments auto-expire to prevent cost sprawl. A CronJob checks TTLs and cleans up:
+
+```python
+# cleanup_controller.py
+
+async def cleanup_expired_environments():
+    """Run every 30 minutes. Delete environments past their TTL."""
+
+    envs = await k8s_client.list_custom_objects(
+        group="platform.naik.org",
+        version="v1alpha1",
+        plural="developerenvironments"
+    )
+
+    for env in envs["items"]:
+        created_at = datetime.fromisoformat(env["metadata"]["creationTimestamp"])
+        ttl_hours = int(env["metadata"]["labels"].get("ttl", "72").rstrip("h"))
+        expires_at = created_at + timedelta(hours=ttl_hours)
+
+        if datetime.now(timezone.utc) > expires_at:
+            env_id = env["metadata"]["name"]
+            team = env["metadata"]["labels"]["team"]
+
+            # Notify team 1 hour before deletion
+            if datetime.now(timezone.utc) > expires_at - timedelta(hours=1):
+                await notify_team(
+                    channel=f"#{team}",
+                    message=f"⏰ Environment `{env_id}` expires in 1 hour. "
+                           f"Run `/extend-env {env_id} 24h` to keep it."
+                )
+
+            # Delete after TTL
+            if datetime.now(timezone.utc) > expires_at:
+                await delete_environment(env_id)
+                await notify_team(
+                    channel=f"#{team}",
+                    message=f"🗑️ Environment `{env_id}` has been deleted (TTL expired)."
+                )
+```
+
+---
+
+## 7. Developer Experience: Slack Integration
+
+The most-used IDP touchpoint isn't the web portal — it's Slack. Developers use slash commands from wherever they're working:
+
+```
+/create-env billing-sprint42 --from=staging --ttl=48h
+/list-envs billing-team
+/extend-env billing-sprint42 --hours=24
+/delete-env billing-sprint42
+/start-env billing-sprint42      (if scheduled stop happened)
+/deploy billing-service:pr-142 --env=billing-sprint42
+```
+
+Each command calls the Platform API and posts results back to the channel.
+
+---
+
+## Results at Mareana
+
+| Metric | Before IDP | After IDP |
+|---|---|---|
+| New environment provisioning | 1–2 days (manual ticket) | < 30 minutes (self-service) |
+| Active environments at any time | ~8 (costly) | 15–20 (with TTL auto-cleanup) |
+| Non-prod cloud cost | $14,200/month | $8,500/month (FinOps scheduling) |
+| Platform team tickets for infra requests | 40–50/sprint | 3–5/sprint |
+| Service onboarding (new microservice) | 2–4 hours | 15 minutes (template) |
+| Security policy violations at deploy | Frequent | 0 (Kyverno enforced) |
+
+---
+
+## Key Takeaways
+
+1. **Start with the most painful workflows** — at Mareana, environment provisioning was the biggest bottleneck. Start there, not with the perfect portal.
+2. **Golden Paths must be genuinely better** — if the opinionated path is harder than DIY, developers will bypass it. Invest in making it fast.
+3. **Self-service needs guardrails** — TTLs on environments, resource quotas per team, and Kyverno policies prevent the self-service model from becoming chaos.
+4. **Backstage is a framework, not a product** — budget 2–3 months to build a useful Backstage deployment. It's not plug-and-play.
+5. **The Platform API is the real value** — the portal is just a UI. The automation behind it is what delivers value.
+
+---
+
+## References
+
+- [Backstage Documentation](https://backstage.io/docs/overview/what-is-backstage)
+- [CNCF Platforms White Paper](https://tag-app-delivery.cncf.io/whitepapers/platforms/)
+- [Kubernetes CRDs](https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/)
+- [Operator SDK](https://sdk.operatorframework.io/docs/)

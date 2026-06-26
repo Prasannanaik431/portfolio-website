@@ -1,0 +1,657 @@
+---
+title: "Kubernetes Deployment Strategies: Rolling, Blue-Green, Canary, A/B, Shadow & Recreate"
+date: "2026-06-25"
+excerpt: "A complete guide to every Kubernetes deployment strategy — when to use each, real YAML implementations, traffic routing patterns, and how to choose the right approach for your workload."
+tags: ["Kubernetes", "Platform Engineering", "DevOps", "GitOps", "Helm"]
+author: "Prasanna Suresh Naik"
+readTime: "18 min read"
+slug: "kubernetes-deployment-strategies"
+---
+
+# Kubernetes Deployment Strategies: Rolling, Blue-Green, Canary, A/B, Shadow & Recreate
+
+Choosing the wrong deployment strategy doesn't just cause downtime — it creates rollback debt, customer complaints, and 3am pages. At Mareana, I've implemented all six major strategies across 35+ production environments. This guide covers every strategy with real YAML, traffic routing patterns, and the decision framework I use to choose between them.
+
+---
+
+## The Decision Framework
+
+Before diving into each strategy, here's the matrix I use:
+
+| Strategy | Downtime | Rollback Speed | Resource Cost | Risk | Best For |
+|---|---|---|---|---|---|
+| **Recreate** | Yes | Instant | 1x | High | Dev/staging, stateful apps |
+| **Rolling Update** | No | Minutes | 1–2x | Low–Medium | Stateless APIs, default choice |
+| **Blue-Green** | No | Instant (DNS swap) | 2x | Low | Mission-critical, zero-tolerance downtime |
+| **Canary** | No | Minutes | 1.1–1.5x | Very Low | High-traffic prod, untested features |
+| **A/B Testing** | No | Minutes | 1.1–1.5x | Low | User-facing features, experiments |
+| **Shadow** | No | N/A | 2x | Zero | Performance validation, migration testing |
+
+<ArchitectureDiagram />
+
+> **Architecture at a glance:** Pick the strategy based on blast radius and rollback speed — not habit. Stateless APIs default to rolling; revenue-critical paths get blue-green or canary with Prometheus gates before full promotion.
+
+---
+
+## 1. Recreate
+
+The simplest strategy — kill all old pods, then start all new pods. Causes downtime.
+
+### When to use
+- Development and staging environments
+- Stateful applications where running two versions simultaneously causes data corruption
+- When the new version has a breaking DB schema migration
+
+### Implementation
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ems-worker
+  namespace: dev-ems
+spec:
+  replicas: 3
+  strategy:
+    type: Recreate   # All pods terminated before new ones start
+  selector:
+    matchLabels:
+      app: ems-worker
+  template:
+    metadata:
+      labels:
+        app: ems-worker
+        version: v2.0.0
+    spec:
+      containers:
+        - name: ems-worker
+          image: 123456789012.dkr.ecr.us-east-1.amazonaws.com/naik-prod/ems-worker:v2.0.0
+          # Init container runs DB migration before app starts
+          initContainers:
+            - name: db-migrate
+              image: 123456789012.dkr.ecr.us-east-1.amazonaws.com/naik-prod/ems-worker:v2.0.0
+              command: ["python", "manage.py", "migrate", "--run-syncdb"]
+              envFrom:
+                - secretRef:
+                    name: ems-db-secret
+```
+
+**What happens**: Kubernetes terminates all v1.0.0 pods simultaneously, then starts v2.0.0 pods. There is a gap where no pods are running — this is the downtime window.
+
+---
+
+## 2. Rolling Update
+
+The Kubernetes default. New pods gradually replace old pods, maintaining availability throughout.
+
+### When to use
+- Stateless microservices (APIs, workers)
+- Default strategy for most production workloads
+- When you can tolerate briefly running two versions simultaneously
+
+### Implementation
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-service
+  namespace: prod-auth
+spec:
+  replicas: 6
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 2         # Allow 2 extra pods above desired count during update
+      maxUnavailable: 0   # Never have fewer than 6 pods available (zero-downtime)
+  selector:
+    matchLabels:
+      app: auth-service
+  template:
+    metadata:
+      labels:
+        app: auth-service
+        version: v3.1.0
+    spec:
+      containers:
+        - name: auth-service
+          image: 123456789012.dkr.ecr.us-east-1.amazonaws.com/naik-prod/auth-service:v3.1.0
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 3
+          # Pod must pass readiness before old pod is terminated
+```
+
+**What happens**: Kubernetes starts 2 new pods (`maxSurge: 2`). Once they pass readiness, 2 old pods are terminated. This repeats until all 6 pods are updated. At no point are fewer than 6 pods serving traffic (`maxUnavailable: 0`).
+
+### Rollback
+
+```bash
+# Instant rollback to previous version
+kubectl rollout undo deployment/auth-service -n prod-auth
+
+# Rollback to specific revision
+kubectl rollout undo deployment/auth-service --to-revision=3 -n prod-auth
+
+# Monitor rollout
+kubectl rollout status deployment/auth-service -n prod-auth
+```
+
+---
+
+## 3. Blue-Green Deployment
+
+Run two identical environments (blue = current, green = new). Switch traffic instantly by updating a Service selector. If green fails, flip back to blue in seconds.
+
+### When to use
+- Zero-tolerance for downtime (financial transactions, auth services)
+- Need instant rollback capability
+- Testing the full production stack before switching traffic
+
+### Architecture
+
+```
+Internet ──> Ingress ──> Service (selector: active=blue)
+                              │
+                    ┌─────────┴─────────┐
+                    │                   │
+              [Blue Pods v1]     [Green Pods v2]
+              (serving traffic)  (idle, ready)
+```
+
+### Implementation
+
+```yaml
+# Blue deployment (currently serving)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-service-blue
+  namespace: prod-payments
+spec:
+  replicas: 4
+  selector:
+    matchLabels:
+      app: payment-service
+      slot: blue
+  template:
+    metadata:
+      labels:
+        app: payment-service
+        slot: blue
+        version: v4.1.0
+    spec:
+      containers:
+        - name: payment-service
+          image: 123456789012.dkr.ecr.us-east-1.amazonaws.com/naik-prod/payment-service:v4.1.0
+---
+# Green deployment (new version, scaled up but not serving)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-service-green
+  namespace: prod-payments
+spec:
+  replicas: 4
+  selector:
+    matchLabels:
+      app: payment-service
+      slot: green
+  template:
+    metadata:
+      labels:
+        app: payment-service
+        slot: green
+        version: v4.2.0
+    spec:
+      containers:
+        - name: payment-service
+          image: 123456789012.dkr.ecr.us-east-1.amazonaws.com/naik-prod/payment-service:v4.2.0
+---
+# Service — points to blue by default
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment-service
+  namespace: prod-payments
+spec:
+  selector:
+    app: payment-service
+    slot: blue   # ← Change to "green" to switch traffic
+  ports:
+    - port: 80
+      targetPort: 8080
+```
+
+### Traffic Switch Script
+
+```bash
+#!/bin/bash
+# blue-green-switch.sh
+
+NAMESPACE="prod-payments"
+SERVICE="payment-service"
+NEW_SLOT="${1:-green}"   # pass 'blue' or 'green'
+
+echo "▶ Switching traffic to slot: $NEW_SLOT"
+
+# Patch the service selector
+kubectl patch service "$SERVICE" -n "$NAMESPACE" \
+  --type='json' \
+  -p="[{\"op\": \"replace\", \"path\": \"/spec/selector/slot\", \"value\": \"$NEW_SLOT\"}]"
+
+echo "✓ Traffic now routing to: $NEW_SLOT"
+echo "  To rollback: $0 $([ $NEW_SLOT = green ] && echo blue || echo green)"
+```
+
+### With Flux2 GitOps
+
+In a GitOps setup, the switch is a single line change in Git:
+
+```yaml
+# clusters/production/payment-service-svc.yaml
+spec:
+  selector:
+    app: payment-service
+    slot: green   # Changed from 'blue' — Flux reconciles within 1 minute
+```
+
+---
+
+## 4. Canary Deployment
+
+Route a small percentage of traffic to the new version. Gradually increase if metrics stay healthy. Roll back instantly if error rate spikes.
+
+### When to use
+- High-traffic production services
+- Releasing features with unknown performance characteristics
+- When you want data-driven rollout decisions (error rates, latency)
+
+### Kubernetes-native Canary (replica ratio)
+
+```yaml
+# Stable deployment — 9 replicas (90% traffic)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: billing-service-stable
+  namespace: prod-billing
+spec:
+  replicas: 9
+  selector:
+    matchLabels:
+      app: billing-service
+      track: stable
+  template:
+    metadata:
+      labels:
+        app: billing-service
+        track: stable
+    spec:
+      containers:
+        - name: billing-service
+          image: 123456789012.dkr.ecr.us-east-1.amazonaws.com/naik-prod/billing-service:v5.0.0
+---
+# Canary deployment — 1 replica (10% traffic)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: billing-service-canary
+  namespace: prod-billing
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: billing-service
+      track: canary
+  template:
+    metadata:
+      labels:
+        app: billing-service
+        track: canary
+    spec:
+      containers:
+        - name: billing-service
+          image: 123456789012.dkr.ecr.us-east-1.amazonaws.com/naik-prod/billing-service:v5.1.0
+---
+# Single service routes to BOTH deployments by selecting only 'app' label
+apiVersion: v1
+kind: Service
+metadata:
+  name: billing-service
+  namespace: prod-billing
+spec:
+  selector:
+    app: billing-service   # Matches both stable and canary pods
+  ports:
+    - port: 80
+      targetPort: 8080
+```
+
+With 9 stable + 1 canary replica, ~10% of requests hit the canary. Scale the canary gradually: `1 → 3 → 5 → 9 → 10` while scaling stable down.
+
+### Nginx Ingress Canary (weight-based, precise)
+
+For precise percentage control without managing replica counts:
+
+```yaml
+# Stable ingress
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: billing-service-stable
+  namespace: prod-billing
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: billing.ems.internal
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: billing-service-stable
+                port:
+                  number: 80
+---
+# Canary ingress — nginx routes exactly 10% here
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: billing-service-canary
+  namespace: prod-billing
+  annotations:
+    nginx.ingress.kubernetes.io/canary: "true"
+    nginx.ingress.kubernetes.io/canary-weight: "10"   # Exact 10%
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: billing.ems.internal
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: billing-service-canary
+                port:
+                  number: 80
+```
+
+### Automated Canary Progression with Prometheus
+
+```bash
+#!/bin/bash
+# canary-promote.sh — auto-promotes canary if error rate stays below 1%
+
+NAMESPACE="prod-billing"
+CANARY="billing-service-canary"
+STABLE="billing-service-stable"
+PROM="http://prometheus.monitoring.svc:9090"
+MAX_ERROR_RATE=0.01   # 1%
+
+STAGES=(10 25 50 75 100)
+
+for weight in "${STAGES[@]}"; do
+  echo "▶ Setting canary weight to ${weight}%"
+
+  kubectl annotate ingress billing-service-canary \
+    -n "$NAMESPACE" \
+    nginx.ingress.kubernetes.io/canary-weight="$weight" \
+    --overwrite
+
+  echo "  Waiting 5 minutes to gather metrics..."
+  sleep 300
+
+  # Query Prometheus for canary error rate
+  QUERY="sum(rate(http_requests_total{service='billing-service-canary',status=~'5..'}[5m])) / sum(rate(http_requests_total{service='billing-service-canary'}[5m]))"
+  ERROR_RATE=$(curl -s "$PROM/api/v1/query?query=$(python3 -c 'import urllib.parse; print(urllib.parse.quote("""'"$QUERY"'"""))')" \
+    | python3 -c "import sys,json; data=json.load(sys.stdin); print(data['data']['result'][0]['value'][1] if data['data']['result'] else '0')")
+
+  echo "  Error rate: ${ERROR_RATE} (threshold: ${MAX_ERROR_RATE})"
+
+  if (( $(echo "$ERROR_RATE > $MAX_ERROR_RATE" | bc -l) )); then
+    echo "✗ Error rate exceeded threshold! Rolling back canary."
+    kubectl scale deployment "$CANARY" -n "$NAMESPACE" --replicas=0
+    kubectl annotate ingress billing-service-canary -n "$NAMESPACE" \
+      nginx.ingress.kubernetes.io/canary-weight=0 --overwrite
+    exit 1
+  fi
+done
+
+echo "✓ Canary healthy at 100%. Promoting to stable."
+# Update stable image to canary image and scale canary to 0
+CANARY_IMAGE=$(kubectl get deployment "$CANARY" -n "$NAMESPACE" \
+  -o jsonpath='{.spec.template.spec.containers[0].image}')
+kubectl set image deployment/"$STABLE" billing-service="$CANARY_IMAGE" -n "$NAMESPACE"
+kubectl scale deployment "$CANARY" -n "$NAMESPACE" --replicas=0
+```
+
+---
+
+## 5. A/B Testing
+
+Route traffic based on request attributes (headers, cookies, user segments) rather than random percentages. Used for product experiments.
+
+### When to use
+- Testing UI/UX changes for specific user segments
+- Feature flags tied to user IDs or geographic regions
+- Product experiments where you need controlled cohorts
+
+### Nginx Ingress Header-based Routing
+
+```yaml
+# Route users with header X-Beta-User: true to version B
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: api-service-b
+  namespace: prod-api
+  annotations:
+    nginx.ingress.kubernetes.io/canary: "true"
+    nginx.ingress.kubernetes.io/canary-by-header: "X-Beta-User"
+    nginx.ingress.kubernetes.io/canary-by-header-value: "true"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: api.ems.internal
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: api-service-b
+                port:
+                  number: 80
+```
+
+### Cookie-based Routing (sticky sessions for A/B)
+
+```yaml
+annotations:
+  nginx.ingress.kubernetes.io/canary: "true"
+  nginx.ingress.kubernetes.io/canary-by-cookie: "ab_test_group"
+  # Users with cookie ab_test_group=always → version B
+  # Users with cookie ab_test_group=never  → version A
+```
+
+### Istio-based A/B with VirtualService
+
+For more granular control, Istio's `VirtualService` provides header + weight routing in one config:
+
+```yaml
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: api-service
+  namespace: prod-api
+spec:
+  hosts:
+    - api.ems.internal
+  http:
+    # Segment A: enterprise users → v2
+    - match:
+        - headers:
+            x-user-tier:
+              exact: enterprise
+      route:
+        - destination:
+            host: api-service-v2
+            port:
+              number: 80
+    # Segment B: 20% of remaining → v2 (gradual rollout)
+    - route:
+        - destination:
+            host: api-service-v1
+          weight: 80
+        - destination:
+            host: api-service-v2
+          weight: 20
+```
+
+---
+
+## 6. Shadow Deployment (Dark Launch / Traffic Mirroring)
+
+Mirror live production traffic to the new version. The new version processes real requests but its responses are discarded. Zero impact on users — pure validation.
+
+### When to use
+- Validating performance of a new version under real load before cutover
+- Testing a major rewrite with production-scale traffic patterns
+- Database migration validation without risking data
+
+### Istio Traffic Mirroring
+
+```yaml
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: reporting-service
+  namespace: prod-reporting
+spec:
+  hosts:
+    - reporting-service
+  http:
+    - route:
+        - destination:
+            host: reporting-service-v1   # All traffic goes here (responses served)
+          weight: 100
+      mirror:
+        host: reporting-service-v2       # Traffic also mirrored here (responses discarded)
+      mirrorPercentage:
+        value: 100.0                     # Mirror 100% of traffic to v2 for full shadow test
+```
+
+### Nginx Mirror Module
+
+```nginx
+# nginx.conf — mirror to shadow backend
+location /api/ {
+  proxy_pass http://prod-backend/;
+
+  # Mirror to shadow backend asynchronously
+  mirror /mirror/;
+  mirror_request_body on;
+}
+
+location /mirror/ {
+  internal;
+  proxy_pass http://shadow-backend/api/;
+  # Responses from shadow backend are ignored
+}
+```
+
+### Monitoring Shadow Traffic
+
+Compare metrics between production and shadow:
+
+```yaml
+# Prometheus recording rules for shadow comparison
+- record: shadow:error_rate:5m
+  expr: |
+    sum(rate(http_requests_total{service="reporting-service-v2",status=~"5.."}[5m]))
+    /
+    sum(rate(http_requests_total{service="reporting-service-v2"}[5m]))
+
+- alert: ShadowErrorRateHigh
+  expr: shadow:error_rate:5m > 0.02
+  for: 3m
+  labels:
+    severity: warning
+  annotations:
+    summary: "Shadow service v2 has high error rate"
+    description: "Shadow v2 error rate is {{ $value | humanizePercentage }} — do NOT promote to production yet."
+```
+
+---
+
+## How to Choose: The Decision Tree
+
+```
+Is this a dev/staging environment or has breaking schema migrations?
+  └─ YES → Recreate
+
+Is zero-downtime required?
+  └─ NO → Rolling Update (default)
+  └─ YES:
+      Do you need instant rollback with no traffic ramp?
+        └─ YES → Blue-Green
+        └─ NO:
+            Do you need to target specific user segments?
+              └─ YES → A/B Testing
+              └─ NO:
+                  Do you need to validate under real load before serving users?
+                    └─ YES → Shadow
+                    └─ NO → Canary
+```
+
+### Quick Reference
+
+- **Default choice for most services**: Rolling Update
+- **Database migrations with downtime tolerance**: Recreate  
+- **Financial/payment/auth services**: Blue-Green (instant rollback)
+- **Releasing untested high-risk features**: Canary (start at 5%, automated gates)
+- **Product experiments / user research**: A/B Testing (header/cookie routing)
+- **Major rewrites or performance validation**: Shadow (mirror real traffic safely)
+
+---
+
+## GitOps Integration: All Strategies via Flux2
+
+All strategies integrate cleanly with Flux2. The deployment state lives in Git — Flux reconciles it:
+
+```yaml
+# Blue-green switch = 1 line in Git
+# Canary = replica count change in Git
+# Rolling = image tag bump in Git
+
+# Flux image automation handles rolling updates automatically:
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImagePolicy
+metadata:
+  name: auth-service
+  namespace: flux-system
+spec:
+  imageRepositoryRef:
+    name: auth-service
+  policy:
+    semver:
+      range: ">=3.0.0 <4.0.0"   # Only patch/minor in v3.x branch
+```
+
+When a new `v3.2.1` image is pushed, Flux updates the deployment YAML in Git and reconciles — triggering a rolling update with full audit trail.
+
+---
+
+## References
+
+- [Kubernetes Deployment Strategies](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/#strategy)
+- [Nginx Ingress Canary Annotations](https://kubernetes.github.io/ingress-nginx/user-guide/nginx-configuration/annotations/#canary)
+- [Istio Traffic Management](https://istio.io/latest/docs/concepts/traffic-management/)
+- [Argo Rollouts — Progressive Delivery](https://argoproj.github.io/rollouts/)

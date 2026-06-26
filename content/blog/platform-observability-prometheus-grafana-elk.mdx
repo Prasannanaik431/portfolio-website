@@ -18,6 +18,10 @@ This post documents the full architecture, implementation details, and the lesso
 
 ## Architecture Overview
 
+<ArchitectureDiagram />
+
+> **Architecture at a glance:** Metrics flow through Prometheus and Grafana for SLO dashboards; logs land in Elasticsearch via Filebeat. The LLM analyzer reads recent error bursts and returns a root-cause summary before the engineer opens Kibana.
+
 The stack has two planes: **metrics** and **logs**.
 
 ```
@@ -575,7 +579,7 @@ spec:
           restartPolicy: OnFailure
           containers:
             - name: analyzer
-              image: gcr.io/naik-prod/log-analyzer:latest
+              image: 123456789012.dkr.ecr.us-east-1.amazonaws.com/naik-prod/log-analyzer:latest
               command: ["/bin/sh", "-c"]
               args:
                 - |
@@ -661,5 +665,4 @@ After full rollout across all production namespaces:
 - [kube-prometheus-stack Helm Chart](https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack)
 - [Filebeat Kubernetes Autodiscover](https://www.elastic.co/guide/en/beats/filebeat/current/filebeat-autodiscover-kubernetes.html)
 - [Prometheus Alerting Rules](https://prometheus.io/docs/prometheus/latest/configuration/alerting_rules/)
-- [OpenAI Chat Completions API](https://platform.openai.com/docs/api-reference/chat)
-- [Google SRE Book: SLOs](https://sre.google/sre-book/service-level-objectives/)
+- [Google SRE — Service Level Objectives](https://sre.google/sre-book/service-level-objectives/)

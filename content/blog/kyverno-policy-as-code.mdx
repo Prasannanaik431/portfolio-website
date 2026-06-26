@@ -1,98 +1,560 @@
 ---
-title: "Kyverno Policy as Code"
+title: "Kyverno Policy as Code: Securing Multi-Tenant Kubernetes at Scale"
 date: "2026-06-05"
-excerpt: "Enforce security standards, mutate configs, and generate default resources dynamically on Kubernetes using Kyverno."
+excerpt: "Enforce security standards, mutate configs, and generate default resources dynamically on Kubernetes using Kyverno — the complete production guide."
 tags: ["Kubernetes", "DevSecOps", "Kyverno", "Policy as Code"]
 cover: "/blog/kyverno-cover.svg"
 author: "Prasanna Suresh Naik"
-readTime: "5 min read"
+readTime: "16 min read"
 slug: "kyverno-policy-as-code"
 ---
 
-# Kyverno Policy as Code
+# Kyverno Policy as Code: Securing Multi-Tenant Kubernetes at Scale
 
-Maintaining security compliance and resource governance across multiple Kubernetes clusters is a massive challenge. 
+Maintaining security compliance across a multi-tenant Kubernetes platform is one of the hardest operational challenges. Without automated guardrails, every new deployment is a potential security incident waiting to happen — privileged containers, missing resource limits, hardcoded secrets, unrestricted network access.
 
-While tools like OPA Gatekeeper are powerful, writing Rego policies is notoriously complex. **Kyverno** simplifies this by using native Kubernetes yaml declarations to validate, mutate, and generate resources dynamically.
-
----
-
-## 1. Why Kyverno?
-
-Unlike OPA Gatekeeper, Kyverno doesn't require learning a new language. You write policy declarations in YAML:
-- **Validate**: Enforce rules (e.g. blocking privilege escalation or requiring specific labels).
-- **Mutate**: Inject default sidecars, configurations, or proxy settings automatically.
-- **Generate**: Automate resource creation (e.g. generating default ConfigMaps or Secrets when a new Namespace is created).
+At Mareana, I implemented Kyverno as our Policy-as-Code engine across 35+ environments. Before Kyverno, security reviews were manual checklists that teams inconsistently followed. After Kyverno, policies are enforced at the API server level — a non-compliant deployment is simply rejected before it ever touches the cluster.
 
 ---
 
-## 2. Policy Example: Enforcing Read-Only Root Filesystem
+## Why Kyverno Over OPA Gatekeeper?
 
-Running containers with a read-only root filesystem is a key security standard. Here's a Kyverno policy that enforces this rule:
+Both tools enforce admission policies on Kubernetes, but they take fundamentally different approaches:
+
+| Aspect | Kyverno | OPA Gatekeeper |
+|---|---|---|
+| Policy language | YAML (native K8s syntax) | Rego (custom language) |
+| Learning curve | Low — if you know K8s YAML, you know Kyverno | High — Rego requires dedicated learning |
+| Validate | ✅ | ✅ |
+| Mutate | ✅ Built-in | ❌ Requires separate OPA |
+| Generate | ✅ Built-in | ❌ Not supported |
+| Background scanning | ✅ Scans existing resources | ✅ |
+| Policy exceptions | ✅ PolicyException CRD | Complex workarounds |
+| CLI testing | ✅ `kyverno test` | ✅ `conftest` |
+
+The key differentiator: **Kyverno can mutate and generate**, not just validate. This means you can automatically inject sidecars, fix missing labels, and generate default NetworkPolicies when a namespace is created — without any developer action required.
+
+---
+
+## Architecture: How Kyverno Works
+
+<ArchitectureDiagram />
+
+> **Architecture at a glance:** Every `kubectl apply` passes through Kyverno mutating and validating webhooks before etcd. Background controllers generate NetworkPolicies and emit PolicyReports for drift.
+
+```
+┌────────────────────────────────────────────────────────────┐
+│                  Kubernetes API Server                      │
+│                                                             │
+│  kubectl apply pod.yaml                                     │
+│          │                                                  │
+│          ▼                                                  │
+│  ┌─────────────────────────────────────────────────┐       │
+│  │         Admission Webhook Chain                  │       │
+│  │                                                  │       │
+│  │  1. MutatingWebhook ──────► Kyverno Mutation     │       │
+│  │     (modify the object)     - Add labels         │       │
+│  │                             - Inject sidecars    │       │
+│  │                             - Set defaults       │       │
+│  │                                                  │       │
+│  │  2. ValidatingWebhook ────► Kyverno Validation   │       │
+│  │     (allow or deny)         - Check read-only FS │       │
+│  │                             - Require limits     │       │
+│  │                             - Block privileged   │       │
+│  └─────────────────────────────────────────────────┘       │
+│          │                                                  │
+│          ▼                                                  │
+│  Resource stored in etcd (if all webhooks pass)             │
+└────────────────────────────────────────────────────────────┘
+          │
+          ▼ (async, background)
+┌────────────────────────────────────────────────────────────┐
+│           Kyverno Background Controller                     │
+│                                                             │
+│  - Generate: Creates NetworkPolicies, RoleBindings, etc.   │
+│  - Audit: Scans existing resources for policy violations   │
+│  - Reports: Writes PolicyReport CRDs                       │
+└────────────────────────────────────────────────────────────┘
+```
+
+Kyverno runs as a webhook — the Kubernetes API server calls it before persisting any resource. This means policies apply to **all resources**, regardless of whether they were created via `kubectl`, Helm, Flux, or any CI pipeline.
+
+---
+
+## Installing Kyverno
+
+```bash
+# Install via Helm (production setup with 3 replicas for HA)
+helm repo add kyverno https://kyverno.github.io/kyverno/
+helm repo update
+
+helm upgrade --install kyverno kyverno/kyverno \
+  --namespace kyverno \
+  --create-namespace \
+  --set admissionController.replicas=3 \
+  --set backgroundController.replicas=2 \
+  --set reportsController.replicas=2 \
+  --set admissionController.resources.limits.memory=512Mi \
+  --set admissionController.resources.requests.memory=128Mi
+
+# Verify
+kubectl get pods -n kyverno
+# NAME                                          READY   STATUS
+# kyverno-admission-controller-xxx              1/1     Running
+# kyverno-background-controller-xxx             1/1     Running
+# kyverno-reports-controller-xxx                1/1     Running
+```
+
+**Important**: Always run 3 replicas of the admission controller in production. If Kyverno is unavailable and `failurePolicy: Fail` is set, all resource creates/updates will be rejected.
+
+---
+
+## Policy Modes: Audit vs Enforce
+
+Every Kyverno policy has a `validationFailureAction`:
+
+- **`Audit`**: Policy violations are logged in `PolicyReport` CRDs but deployments are **not blocked**. Use this when rolling out new policies to measure impact first.
+- **`Enforce`**: Policy violations cause the admission request to be **rejected**. The `kubectl apply` returns an error.
+
+**Best practice**: Always start with `Audit`, monitor `PolicyReport` for 1–2 weeks to understand blast radius, then switch to `Enforce`.
+
+---
+
+## 1. Validate: Security Baseline Policies
+
+### Require Read-Only Root Filesystem
+
+Running containers with a writable root filesystem means an attacker who achieves code execution can modify system binaries. This policy enforces read-only root:
 
 ```yaml
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:
   name: require-ro-rootfs
+  annotations:
+    policies.kyverno.io/title: Require Read-Only Root Filesystem
+    policies.kyverno.io/category: Pod Security
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/description: >
+      Containers should run with a read-only root filesystem to prevent
+      runtime modification of the container image. Writable temp storage
+      should use emptyDir volume mounts instead.
 spec:
-  validationFailureAction: Audit # Can be set to 'Enforce' to block deployments
+  validationFailureAction: Enforce
   background: true
   rules:
-    - name: validate-read-only-root-fs
+    - name: check-read-only-root-fs
       match:
         any:
           - resources:
-              kinds:
-                - Pod
+              kinds: [Pod]
+              namespaces: ["prod-*", "staging-*"]
+      exclude:
+        any:
+          - resources:
+              annotations:
+                kyverno.io/exempt: "true"
       validate:
-        message: "Containers must run with a read-only root filesystem."
+        message: "Root filesystem must be read-only. Use emptyDir for temp writes."
         pattern:
           spec:
             containers:
               - securityContext:
                   readOnlyRootFilesystem: true
+            initContainers:
+              - =(securityContext):
+                  =(readOnlyRootFilesystem): true
 ```
 
----
+### Block Privileged Containers
 
-## 3. Policy Example: Generating Default NetworkPolicies
-
-When developers provision a new namespace, we should automatically isolate it by default. Kyverno can generate a default `NetworkPolicy` whenever a Namespace is created:
+Privileged containers have full access to the host — essentially root on the node:
 
 ```yaml
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:
-  name: generate-default-netpolicy
+  name: disallow-privileged-containers
 spec:
+  validationFailureAction: Enforce
   rules:
-    - name: deny-all-ingress
+    - name: check-privileged
       match:
         any:
           - resources:
-              kinds:
-                - Namespace
-      generate:
-        apiVersion: networking.k8s.io/v1
-        kind: NetworkPolicy
-        name: default-deny-all
-        namespace: "{{request.object.metadata.name}}"
-        data:
+              kinds: [Pod]
+      validate:
+        message: "Privileged containers are not allowed."
+        pattern:
           spec:
-            podSelector: {}
-            policyTypes:
-              - Ingress
+            =(initContainers):
+              - =(securityContext):
+                  =(privileged): "false"
+            containers:
+              - =(securityContext):
+                  =(privileged): "false"
+```
+
+### Require Resource Requests and Limits
+
+Without resource limits, a single runaway pod can starve the entire node:
+
+```yaml
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-resource-limits
+spec:
+  validationFailureAction: Enforce
+  rules:
+    - name: check-container-resources
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaces: ["prod-*"]
+      validate:
+        message: "All containers must define CPU and memory requests/limits."
+        pattern:
+          spec:
+            containers:
+              - resources:
+                  requests:
+                    memory: "?*"
+                    cpu: "?*"
+                  limits:
+                    memory: "?*"
+                    cpu: "?*"
+```
+
+### Disallow Latest Image Tag
+
+Using `:latest` means your deployment is non-deterministic — the same manifest can deploy different code at different times:
+
+```yaml
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: disallow-latest-tag
+spec:
+  validationFailureAction: Enforce
+  rules:
+    - name: check-image-tag
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+      validate:
+        message: "Image tag ':latest' is not allowed. Use a specific version tag."
+        foreach:
+          - list: "request.object.spec.containers"
+            deny:
+              conditions:
+                any:
+                  - key: "{{ element.image }}"
+                    operator: Equals
+                    value: "*:latest"
+                  - key: "{{ element.image }}"
+                    operator: NotContains
+                    value: ":"
 ```
 
 ---
 
-## 4. Querying Policy Violations
+## 2. Mutate: Automatic Remediation
 
-To check if any resources are violating active policies, run:
+Mutation policies automatically fix missing or incorrect values before the resource is persisted — no developer action needed.
 
-```bash
-kubectl get clusterpolicyreport -A
+### Auto-Add Security Context Defaults
+
+Instead of blocking deployments that lack security contexts, mutate them to add safe defaults:
+
+```yaml
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: add-default-security-context
+spec:
+  rules:
+    - name: add-non-root-user
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaces: ["prod-*", "staging-*"]
+      mutate:
+        patchStrategicMerge:
+          spec:
+            +(securityContext):
+              runAsNonRoot: true
+              runAsUser: 1000
+              fsGroup: 2000
+              seccompProfile:
+                type: RuntimeDefault
+            containers:
+              - (name): "*"
+                +(securityContext):
+                  allowPrivilegeEscalation: false
+                  capabilities:
+                    drop: ["ALL"]
 ```
 
-This returns a cluster-wide audit report showing which services fail rules, enabling continuous governance feedback.
+The `+(field)` syntax means "add this field only if it doesn't already exist" — it never overwrites intentional values.
+
+### Inject Monitoring Labels
+
+Prometheus uses labels to discover targets. This policy ensures every pod has the required labels:
+
+```yaml
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: inject-monitoring-labels
+spec:
+  rules:
+    - name: add-prometheus-labels
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+      mutate:
+        patchStrategicMerge:
+          metadata:
+            labels:
+              +(app.kubernetes.io/managed-by): helm
+              +(platform.naik.org/monitored): "true"
+              +(platform.naik.org/environment): "{{ request.namespace | split('-') | first }}"
+```
+
+---
+
+## 3. Generate: Automatic Resource Creation
+
+Generate policies create new Kubernetes resources in response to other resource creation events. This is Kyverno's most powerful capability.
+
+### Auto-Generate NetworkPolicy on Namespace Creation
+
+Every new namespace gets a default "deny all ingress" NetworkPolicy — developers must explicitly allow traffic they need:
+
+```yaml
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: generate-namespace-network-isolation
+spec:
+  rules:
+    - name: default-deny-ingress
+      match:
+        any:
+          - resources:
+              kinds: [Namespace]
+              selector:
+                matchExpressions:
+                  - key: kubernetes.io/metadata.name
+                    operator: NotIn
+                    values: [kube-system, kube-public, kyverno, flux-system, monitoring]
+      generate:
+        apiVersion: networking.k8s.io/v1
+        kind: NetworkPolicy
+        name: default-deny-all
+        namespace: "{{ request.object.metadata.name }}"
+        synchronize: true    # Keep the generated resource in sync with the policy
+        data:
+          metadata:
+            labels:
+              generated-by: kyverno
+          spec:
+            podSelector: {}
+            policyTypes:
+              - Ingress
+              - Egress
+            egress:
+              # Allow DNS resolution (port 53)
+              - ports:
+                  - port: 53
+                    protocol: UDP
+                  - port: 53
+                    protocol: TCP
+```
+
+### Auto-Generate LimitRange for New Namespaces
+
+```yaml
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: generate-namespace-limitrange
+spec:
+  rules:
+    - name: add-limitrange
+      match:
+        any:
+          - resources:
+              kinds: [Namespace]
+              namespaceSelector:
+                matchExpressions:
+                  - key: platform.naik.org/managed
+                    operator: In
+                    values: ["true"]
+      generate:
+        apiVersion: v1
+        kind: LimitRange
+        name: default-limits
+        namespace: "{{ request.object.metadata.name }}"
+        synchronize: true
+        data:
+          spec:
+            limits:
+              - type: Container
+                default:
+                  cpu: "500m"
+                  memory: "512Mi"
+                defaultRequest:
+                  cpu: "100m"
+                  memory: "128Mi"
+                max:
+                  cpu: "4"
+                  memory: "8Gi"
+```
+
+---
+
+## 4. PolicyException: Controlled Bypasses
+
+Some workloads legitimately need exceptions (e.g., a Prometheus node-exporter that must run privileged). Kyverno's `PolicyException` CRD provides an auditable bypass:
+
+```yaml
+apiVersion: kyverno.io/v2beta1
+kind: PolicyException
+metadata:
+  name: prometheus-node-exporter-exception
+  namespace: monitoring
+spec:
+  exceptions:
+    - policyName: disallow-privileged-containers
+      ruleNames:
+        - check-privileged
+  match:
+    any:
+      - resources:
+          kinds: [Pod]
+          namespaces: [monitoring]
+          names: ["prometheus-node-exporter-*"]
+```
+
+This exception is auditable (it's a Git-committed CRD), reviewable (goes through PR), and scoped (only matches specific pods in specific namespaces).
+
+---
+
+## 5. Testing Policies with Kyverno CLI
+
+Before applying policies to a live cluster, test them locally:
+
+```bash
+# Install Kyverno CLI
+brew install kyverno
+
+# Test a policy against a resource file
+kyverno apply ./policies/require-ro-rootfs.yaml --resource ./test/pod.yaml
+
+# Output:
+# Applying 1 policy rule to 1 resource...
+# pass: 0, fail: 1, warn: 0, error: 0, skip: 0
+# ---
+# FAILED (resource: default/Pod/test-pod)
+# Rule 'check-read-only-root-fs' failed: Root filesystem must be read-only.
+```
+
+For CI integration, write test cases in YAML:
+
+```yaml
+# tests/require-ro-rootfs-test.yaml
+name: require-ro-rootfs-test
+policies:
+  - ../policies/require-ro-rootfs.yaml
+resources:
+  - resources/good-pod.yaml   # Should pass
+  - resources/bad-pod.yaml    # Should fail
+results:
+  - policy: require-ro-rootfs
+    rule: check-read-only-root-fs
+    resource: good-pod
+    result: pass
+  - policy: require-ro-rootfs
+    rule: check-read-only-root-fs
+    resource: bad-pod
+    result: fail
+```
+
+```bash
+kyverno test tests/
+# Test Summary: 2 of 2 tests passed (100%)
+```
+
+---
+
+## 6. Monitoring Policy Compliance
+
+```bash
+# View cluster-wide policy reports
+kubectl get clusterpolicyreport -A
+
+# Detailed violations
+kubectl get policyreport -n prod-payments -o json \
+  | jq '.results[] | select(.result == "fail") | {resource: .resources[0].name, rule: .rule, message: .message}'
+
+# Output:
+# {
+#   "resource": "payment-worker-xxx",
+#   "rule": "require-resource-limits",
+#   "message": "All containers must define CPU and memory requests/limits."
+# }
+```
+
+Add a Prometheus alert for new policy violations:
+
+```yaml
+- alert: KyvernoPolicyViolation
+  expr: |
+    sum(kyverno_policy_results_total{policy_result="fail"}) by (policy, rule, namespace) > 0
+  for: 5m
+  labels:
+    severity: warning
+  annotations:
+    summary: "Kyverno policy violation: {{ $labels.policy }}/{{ $labels.rule }}"
+    description: "Policy {{ $labels.policy }} rule {{ $labels.rule }} is failing in {{ $labels.namespace }}"
+```
+
+---
+
+## Our Policy Rollout Playbook at Mareana
+
+Rolling out policies to 35+ environments without breaking anything requires a systematic approach:
+
+1. **Write the policy in Audit mode** — push to all environments, collect violations for 2 weeks
+2. **Analyze PolicyReports** — identify which teams/services are non-compliant
+3. **Work with teams to fix violations** — update Helm chart defaults, update app configs
+4. **Create PolicyExceptions for legitimate bypasses** — privileged init containers, host networking, etc.
+5. **Switch to Enforce mode** — push to staging first, validate for 1 week, then production
+6. **Monitor alerts** — watch for unexpected denials in the first 48 hours
+
+---
+
+## Results at Mareana
+
+| Metric | Before Kyverno | After Kyverno |
+|---|---|---|
+| Services running as root | ~40% | 0% |
+| Services missing resource limits | ~35% | 0% (blocked at deploy) |
+| Services without NetworkPolicy | ~60% | 0% (auto-generated) |
+| Policy compliance review time | 4h/sprint (manual) | 0 (automated) |
+| Security incidents from misconfig | 2–3/quarter | 0 |
+
+---
+
+## References
+
+- [Kyverno Documentation](https://kyverno.io/docs/)
+- [Kyverno Policy Library](https://kyverno.io/policies/)
+- [Kubernetes NetworkPolicies](https://kubernetes.io/docs/concepts/services-networking/network-policies/)
+- [Pod Security Admission](https://kubernetes.io/docs/concepts/security/pod-security-admission/)

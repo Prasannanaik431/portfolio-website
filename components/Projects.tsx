@@ -10,7 +10,7 @@ interface ProjectDetails {
   codename: string;
   tagline: string;
   description: string;
-  features: string[];
+  outcomes: string[];
   tags: string[];
   icon: React.ReactNode;
   color: "blue" | "cyan" | "teal";
@@ -29,13 +29,12 @@ export default function Projects() {
       title: "Environment Management System (EMS)",
       codename: "EMS",
       tagline: "Self-service environment provisioning and scheduling platform",
-      description: "A database-driven developer environment portal allowing developers to spin up complete stacks with a single click. Integrated with scheduling templates to automatically start/stop non-prod namespaces and control cloud costs.",
-      features: [
-        "Self-service environment provisioning",
-        "Environment scaling schedules",
-        "FinOps cost dashboards",
-        "RBAC security control",
-        "GitOps Flux2 reconciliations",
+      description: "Developers waited days for sandbox environments while non-prod namespaces burned cloud budget overnight — the platform needed one-click stacks and schedules that shut idle resources down.",
+      outcomes: [
+        "Full dev stacks provisioned in one click",
+        "Non-prod namespaces auto start/stop on schedule",
+        "FinOps dashboards surface cost per team",
+        "RBAC and GitOps reconciliation built in",
       ],
       tags: ["Python", "FastAPI", "React", "PostgreSQL", "Flux2", "Kubernetes"],
       icon: <CircleDollarSign className="h-5 w-5" />,
@@ -54,13 +53,12 @@ export default function Projects() {
       title: "Internal Developer Platform (IDP)",
       codename: "Golden Paths",
       tagline: "Enterprise developer self-service portal",
-      description: "Built developer self-service templates (Golden Paths) standardizing application scaffolding, Kubernetes configuration, and security baselines. Automates infra provisioning, policy compliance, and canary deployments.",
-      features: [
-        "Golden Paths scaffolding templates",
-        "Infrastructure automation",
-        "Secrets & Policy enforcement",
-        "Automated Canary/Blue-Green deployments",
-        "Platform API endpoints",
+      description: "Every new service started from a different template — inconsistent probes, missing limits, and security reviews that blocked velocity. Teams needed golden paths, not another wiki page.",
+      outcomes: [
+        "Golden path templates scaffold repos and infra",
+        "Kyverno enforces policy before deploy lands",
+        "Canary and blue-green rollouts automated",
+        "Platform API exposes self-service to developers",
       ],
       tags: ["Go", "Next.js", "Terraform", "Kyverno", "ArgoCD", "AWS"],
       icon: <Compass className="h-5 w-5" />,
@@ -79,13 +77,12 @@ export default function Projects() {
       title: "Reusable Helm Deployment Framework",
       codename: "Helm Framework",
       tagline: "Boilerplate-free Kubernetes deployments at scale",
-      description: "Created a central, reusable Helm deployment framework supporting 100+ microservices. Reduced boilerplate YAML template configurations by 90% through dynamic values, environment templating, and automated sidecar injections.",
-      features: [
-        "Environment templating",
-        "Supports 100+ distinct microservices",
-        "Dynamic value bindings",
-        "Automated secret injection",
-        "Zero boilerplate architecture",
+      description: "100+ microservices meant 100+ copy-pasted deployment manifests — drift within days, no standard for secrets or probes, and every framework fix required touching every repo.",
+      outcomes: [
+        "95% less YAML per service",
+        "100+ microservices on one chart",
+        "Dynamic values and secret injection",
+        "One PR updates the entire fleet",
       ],
       tags: ["Helm", "YAML", "Kubernetes", "Azure Key Vault", "AWS Secrets"],
       icon: <Layers className="h-5 w-5" />,
@@ -103,13 +100,12 @@ export default function Projects() {
       title: "Enterprise CI/CD Platform",
       codename: "Database CI/CD",
       tagline: "Groovy-driven database pipeline orchestration",
-      description: "Designed a centralized database-driven CI/CD platform using Jenkins Shared Libraries and Groovy. Standardized compliance controls, SBOM generation, SonarQube quality gates, and Dependency Track security verification.",
-      features: [
-        "Jenkins Groovy Shared Libraries",
-        "Database-driven workflow pipelines",
-        "SBOM generation & security scans",
-        "SonarQube Quality Gates",
-        "Multi-stage automated releases",
+      description: "Pipeline logic lived in Jenkinsfiles nobody wanted to maintain — quality gates were optional, SBOM checks inconsistent, and releases still took hours end to end.",
+      outcomes: [
+        "100+ pipelines on shared Groovy libraries",
+        "95% faster build-to-prod cycle",
+        "SonarQube gates block bad merges",
+        "SBOM and Dependency Track on every build",
       ],
       tags: ["Jenkins", "Groovy", "SonarQube", "Dependency Track", "Docker"],
       icon: <Cpu className="h-5 w-5" />,
@@ -129,13 +125,12 @@ export default function Projects() {
       title: "Centralized Logging & Observability",
       codename: "Log Analytics",
       tagline: "AI-powered log analysis and anomaly detection",
-      description: "Integrated an LLM-powered anomaly detection model into a centralized log analytics platform. Fetches application logs from Elasticsearch and CloudWatch, auto-detecting anomalies and summarizing root causes in real-time.",
-      features: [
-        "Elasticsearch, Kibana & Prometheus stacks",
-        "LLM-powered log anomaly analyzer",
-        "Real-time root cause notifications",
-        "Custom Grafana bio metrics",
-        "FastAPI middleware collector",
+      description: "Engineers spent the first twenty minutes of every incident grep-ing Elasticsearch — the stack needed to surface root cause before anyone opened Kibana.",
+      outcomes: [
+        "LLM summarizes anomalies from live logs",
+        "Elasticsearch and CloudWatch unified",
+        "Root-cause alerts before dashboard triage",
+        "Grafana metrics wired for platform SLOs",
       ],
       tags: ["Python", "FastAPI", "Elasticsearch", "Prometheus", "Grafana", "LLMs"],
       icon: <Sparkles className="h-5 w-5" />,
@@ -154,13 +149,12 @@ export default function Projects() {
       title: "Kubernetes Cost Optimization",
       codename: "FinOps Console",
       tagline: "Automated cost reduction and scaling dashboard",
-      description: "Designed a cost optimization controller monitoring idle resources across GKE clusters. Automatically deletes orphaned load balancers, scales non-prod node pools to zero after-hours, and flags budget overflows.",
-      features: [
-        "Node pool scheduling to zero",
-        "Idle resource cleanup triggers",
-        "Cloud cost API bindings",
-        "Budget overflow warnings",
-        "Auto scale controls",
+      description: "Non-prod clusters ran at full capacity while nobody was working — orphaned load balancers and idle node pools quietly inflated the monthly bill.",
+      outcomes: [
+        "40% reduction in non-prod cloud spend",
+        "Node pools scale to zero after hours",
+        "Orphaned resources auto-cleaned",
+        "Budget overflow alerts to Slack",
       ],
       tags: ["Go", "Kubernetes Operator", "AWS CloudWatch", "Prometheus", "Slack API"],
       icon: <ShieldAlert className="h-5 w-5" />,
@@ -222,12 +216,15 @@ export default function Projects() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative">
         {/* Section Heading */}
         <div className="mb-16 text-left">
-          <h2 className="text-xs font-mono text-brand-cyan tracking-wider uppercase mb-2">
+          <h2 className="text-xs font-mono text-brand-cyan tracking-wide mb-2">
             $ ls -l /opt/platform/projects
           </h2>
           <h3 className="text-3xl sm:text-4xl font-bold tracking-tight bg-gradient-to-r from-slate-950 via-slate-800 to-slate-600 bg-clip-text text-transparent dark:from-white dark:via-slate-200 dark:to-slate-400">
-            Platform Projects
+            Proof, not promises.
           </h3>
+          <p className="text-sm text-muted-foreground mt-3 max-w-2xl leading-relaxed">
+            Six systems a hiring manager can scan in ten seconds. Challenge in, outcomes out.
+          </p>
           <div className="h-1 w-12 bg-gradient-to-r from-brand-blue to-brand-cyan mt-3 rounded-full" />
         </div>
 
@@ -259,21 +256,16 @@ export default function Projects() {
 
                 {/* Content */}
                 <h4 className="text-lg font-bold text-foreground mb-1">{proj.title}</h4>
-                <div className="flex gap-2 mb-3">
-                  <span className="text-[10px] font-mono text-muted-foreground tracking-wider uppercase">
-                    Codename: {proj.codename}
-                  </span>
-                </div>
-                <p className="text-xs text-muted-foreground mb-6 leading-relaxed">
+                <p className="text-[10px] font-mono text-brand-cyan/80 mb-2">{proj.tagline}</p>
+                <p className="text-xs text-muted-foreground mb-5 leading-relaxed">
                   {proj.description}
                 </p>
 
-                {/* Bullet Points */}
-                <ul className="space-y-1.5 mb-6 text-[11px] text-muted-foreground font-mono">
-                  {proj.features.slice(0, 3).map((f, fIdx) => (
-                    <li key={fIdx} className="flex gap-1.5 items-center">
-                      <span className="h-1 w-1 rounded-full bg-brand-cyan" />
-                      <span>{f}</span>
+                <ul className="space-y-1.5 mb-6 text-[11px] text-muted-foreground">
+                  {proj.outcomes.map((outcome, fIdx) => (
+                    <li key={fIdx} className="flex gap-2 items-start">
+                      <span className="text-green-500/90 shrink-0 select-none">✓</span>
+                      <span>{outcome}</span>
                     </li>
                   ))}
                 </ul>
