@@ -1,0 +1,98 @@
+---
+title: "Kyverno Policy as Code"
+date: "2026-06-05"
+excerpt: "Enforce security standards, mutate configs, and generate default resources dynamically on Kubernetes using Kyverno."
+tags: ["Kubernetes", "DevSecOps", "Kyverno", "Policy as Code"]
+cover: "/blog/kyverno-cover.svg"
+author: "Prasanna Suresh Naik"
+readTime: "5 min read"
+slug: "kyverno-policy-as-code"
+---
+
+# Kyverno Policy as Code
+
+Maintaining security compliance and resource governance across multiple Kubernetes clusters is a massive challenge. 
+
+While tools like OPA Gatekeeper are powerful, writing Rego policies is notoriously complex. **Kyverno** simplifies this by using native Kubernetes yaml declarations to validate, mutate, and generate resources dynamically.
+
+---
+
+## 1. Why Kyverno?
+
+Unlike OPA Gatekeeper, Kyverno doesn't require learning a new language. You write policy declarations in YAML:
+- **Validate**: Enforce rules (e.g. blocking privilege escalation or requiring specific labels).
+- **Mutate**: Inject default sidecars, configurations, or proxy settings automatically.
+- **Generate**: Automate resource creation (e.g. generating default ConfigMaps or Secrets when a new Namespace is created).
+
+---
+
+## 2. Policy Example: Enforcing Read-Only Root Filesystem
+
+Running containers with a read-only root filesystem is a key security standard. Here's a Kyverno policy that enforces this rule:
+
+```yaml
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-ro-rootfs
+spec:
+  validationFailureAction: Audit # Can be set to 'Enforce' to block deployments
+  background: true
+  rules:
+    - name: validate-read-only-root-fs
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      validate:
+        message: "Containers must run with a read-only root filesystem."
+        pattern:
+          spec:
+            containers:
+              - securityContext:
+                  readOnlyRootFilesystem: true
+```
+
+---
+
+## 3. Policy Example: Generating Default NetworkPolicies
+
+When developers provision a new namespace, we should automatically isolate it by default. Kyverno can generate a default `NetworkPolicy` whenever a Namespace is created:
+
+```yaml
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: generate-default-netpolicy
+spec:
+  rules:
+    - name: deny-all-ingress
+      match:
+        any:
+          - resources:
+              kinds:
+                - Namespace
+      generate:
+        apiVersion: networking.k8s.io/v1
+        kind: NetworkPolicy
+        name: default-deny-all
+        namespace: "{{request.object.metadata.name}}"
+        data:
+          spec:
+            podSelector: {}
+            policyTypes:
+              - Ingress
+```
+
+---
+
+## 4. Querying Policy Violations
+
+To check if any resources are violating active policies, run:
+
+```bash
+kubectl get clusterpolicyreport -A
+```
+
+This returns a cluster-wide audit report showing which services fail rules, enabling continuous governance feedback.

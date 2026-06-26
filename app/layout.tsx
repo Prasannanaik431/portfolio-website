@@ -1,5 +1,9 @@
 import type { Metadata } from "next";
 import { ThemeProvider } from "@/components/theme-provider";
+import CommandPaletteProvider from "@/components/CommandPaletteProvider";
+import CustomCursor from "@/components/CustomCursor";
+import LoadingScreen from "@/components/LoadingScreen";
+import { getAllPosts } from "@/lib/blog";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -70,6 +74,13 @@ export default function RootLayout({
     ]
   };
 
+  // Server-side fetch blog post metadata for command palette
+  const blogPosts = getAllPosts().map(p => ({
+    title: p.title,
+    slug: p.slug,
+    excerpt: p.excerpt,
+  }));
+
   return (
     <html lang="en" suppressHydrationWarning className="scroll-smooth">
       <head>
@@ -79,7 +90,7 @@ export default function RootLayout({
         />
       </head>
       <body
-        className="font-sans antialiased text-foreground bg-background transition-colors duration-300 overflow-x-hidden"
+        className="font-sans antialiased text-foreground bg-background transition-colors duration-300 overflow-x-hidden cursor-none"
       >
         <ThemeProvider
           attribute="class"
@@ -87,6 +98,15 @@ export default function RootLayout({
           enableSystem={false}
           disableTransitionOnChange
         >
+          {/* Boot splash loading screen */}
+          <LoadingScreen />
+
+          {/* Custom cursor overlay */}
+          <CustomCursor />
+
+          {/* Global command palette Ctrl+K */}
+          <CommandPaletteProvider blogPosts={blogPosts} />
+
           {children}
         </ThemeProvider>
       </body>

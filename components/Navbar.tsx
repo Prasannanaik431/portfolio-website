@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useTheme } from "next-themes";
-import { Menu, X, Sun, Moon, Terminal, Download } from "lucide-react";
+import { Menu, X, Sun, Moon, Terminal, Download, Search } from "lucide-react";
 
 const NAV_ITEMS = [
   { label: "Home", href: "#home" },
@@ -120,7 +120,24 @@ export default function Navbar() {
         </nav>
 
         {/* CTAs and Toggle */}
-        <div className="hidden md:flex items-center gap-4">
+        <div className="hidden md:flex items-center gap-3">
+          {/* Ctrl+K command palette hint */}
+          <button
+            onClick={() => {
+              const event = new KeyboardEvent("keydown", { key: "k", ctrlKey: true, bubbles: true });
+              window.dispatchEvent(event);
+            }}
+            className="flex items-center gap-1.5 rounded-md border border-white/10 bg-white/5 hover:bg-white/10 hover:border-brand-cyan/20 px-2.5 py-1.5 text-[10px] font-mono text-muted-foreground hover:text-foreground transition-all group"
+            aria-label="Open command palette"
+          >
+            <Search className="h-3 w-3 group-hover:text-brand-cyan transition-colors" />
+            <span>Search</span>
+            <span className="flex items-center gap-0.5 ml-1">
+              <kbd className="bg-white/5 border border-white/10 px-1 py-0.5 rounded text-[9px]">⌘</kbd>
+              <kbd className="bg-white/5 border border-white/10 px-1 py-0.5 rounded text-[9px]">K</kbd>
+            </span>
+          </button>
+
           <button
             onClick={toggleTheme}
             className="rounded-full p-2 text-muted-foreground hover:bg-white/10 dark:hover:bg-white/5 hover:text-foreground transition-colors"

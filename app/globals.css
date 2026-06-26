@@ -134,3 +134,18 @@
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+/* Cursor: body uses cursor-none; interactive elements restore pointer */
+a, button, [role="button"], select, input, textarea, label, summary {
+  cursor: none;
+}
+
+/* Page section fade-in animation */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0);   }
+}
+.animate-fadeIn {
+  animation: fadeIn 0.5s ease-out forwards;
+}
+
