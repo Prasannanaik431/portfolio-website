@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Menu, X, Terminal, Download, Search } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
 
 const NAV_ITEMS = [
   { label: "Home",         href: "#home" },
@@ -19,8 +20,13 @@ export default function Navbar() {
   const [isOpen, setIsOpen]         = useState(false);
   const [activeSection, setActive]  = useState("home");
   const [scrolled, setScrolled]     = useState(false);
+  const pathname = usePathname();
+  const router   = useRouter();
+
+  const isHomePage = pathname === "/";
 
   useEffect(() => {
+    if (!isHomePage) return;
     const onScroll = () => {
       setScrolled(window.scrollY > 20);
       const scrollPosition = window.scrollY + 200;
@@ -35,16 +41,29 @@ export default function Navbar() {
     };
     window.addEventListener("scroll", onScroll);
     return () => window.removeEventListener("scroll", onScroll);
+  }, [isHomePage]);
+
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 20);
+    window.addEventListener("scroll", onScroll);
+    return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
   const handleNavClick = (e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
     e.preventDefault();
     const id = href.substring(1);
-    const el = document.getElementById(id);
-    if (el) {
-      window.scrollTo({ top: el.offsetTop - 80, behavior: "smooth" });
-      setActive(id);
-      setIsOpen(false);
+    setIsOpen(false);
+
+    if (isHomePage) {
+      // Already on homepage — just smooth scroll
+      const el = document.getElementById(id);
+      if (el) {
+        window.scrollTo({ top: el.offsetTop - 80, behavior: "smooth" });
+        setActive(id);
+      }
+    } else {
+      // On blog or any other page — navigate home with hash
+      router.push(`/#${id}`);
     }
   };
 
@@ -57,8 +76,8 @@ export default function Navbar() {
       <div className="mx-auto flex max-w-7xl h-16 items-center justify-between px-4 sm:px-6 lg:px-8">
         {/* Brand */}
         <a
-          href="#home"
-          onClick={e => handleNavClick(e, "#home")}
+          href={isHomePage ? "#home" : "/"}
+          onClick={isHomePage ? (e) => handleNavClick(e, "#home") : undefined}
           className="flex items-center gap-2 font-mono text-lg font-bold tracking-tight text-foreground"
         >
           <motion.div
@@ -76,7 +95,7 @@ export default function Navbar() {
         <nav className="hidden md:flex items-center gap-1">
           {NAV_ITEMS.map(item => {
             const id = item.href.substring(1);
-            const isActive = activeSection === id;
+            const isActive = isHomePage ? activeSection === id : (id === "blog" && pathname.startsWith("/blog"));
             return (
               <a
                 key={item.href}
@@ -153,7 +172,7 @@ export default function Navbar() {
             <div className="flex flex-col gap-1 px-4 py-4">
               {NAV_ITEMS.map(item => {
                 const id = item.href.substring(1);
-                const isActive = activeSection === id;
+                const isActive = isHomePage ? activeSection === id : (id === "blog" && pathname.startsWith("/blog"));
                 return (
                   <a
                     key={item.href}

@@ -71,8 +71,10 @@ export default function Contact() {
   const [formErrors, setFormErrors] = useState<Partial<FormState>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [simSteps, setSimSteps] = useState<string[]>([]);
   const [currentStepIndex, setCurrentStepIndex] = useState(-1);
+  const [trackingId] = useState(() => Math.random().toString(36).substring(2, 11));
 
   // Connection config metadata details
   const connectionDetails = [
@@ -115,48 +117,70 @@ export default function Contact() {
     return Object.keys(errors).length === 0;
   };
 
-  // Steps in the terminal simulation
+  // Steps in the terminal simulation (runs while the real API call is in-flight)
   const simulationScripts = React.useMemo(() => [
     "Initializing secure SSH session to prasanna.naik...",
     "Resolving host api.prasanna.naik (185.199.108.153) on port 443...",
     "Connecting... Established TLS 1.3 encrypted handshake.",
     "Loading payload parameters...",
     `Dispatched payload: { sender: "${formData.name}", callback: "${formData.email}", subject: "${formData.subject}" }`,
-    "Routing webhook to Slack & Email operational relays...",
-    "Verifying delivery checksum... SUCCESS.",
+    "Routing through Resend email relay...",
+    "Verifying delivery checksum...",
   ], [formData.name, formData.email, formData.subject]);
 
+  // Drive the terminal animation; actual success/failure comes from the API response
   useEffect(() => {
-    if (isSubmitting && currentStepIndex < simulationScripts.length) {
-      const delay = currentStepIndex === -1 ? 400 : 700;
+    if (!isSubmitting) return;
+
+    if (currentStepIndex < simulationScripts.length - 1) {
+      const delay = currentStepIndex === -1 ? 300 : 600;
       const timer = setTimeout(() => {
         if (currentStepIndex === -1) {
           setSimSteps([simulationScripts[0]]);
           setCurrentStepIndex(0);
         } else {
-          setSimSteps((prev) => [...prev, simulationScripts[currentStepIndex + 1]]);
-          setCurrentStepIndex((prev) => prev + 1);
+          setSimSteps(prev => [...prev, simulationScripts[currentStepIndex + 1]]);
+          setCurrentStepIndex(prev => prev + 1);
         }
       }, delay);
       return () => clearTimeout(timer);
-    } else if (isSubmitting && currentStepIndex === simulationScripts.length) {
-      const timer = setTimeout(() => {
-        setIsSubmitting(false);
-        setSubmitSuccess(true);
-      }, 1000);
-      return () => clearTimeout(timer);
     }
+    // All animation steps shown — wait for the API promise to resolve (handled in handleSubmit)
   }, [isSubmitting, currentStepIndex, simulationScripts]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validateForm()) return;
 
-    // Reset simulator states
+    // Reset states and start animation + API call in parallel
     setSimSteps([]);
     setCurrentStepIndex(-1);
-    setIsSubmitting(true);
+    setSubmitError(null);
     setSubmitSuccess(false);
+    setIsSubmitting(true);
+
+    try {
+      const res = await fetch("/api/contact", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(formData),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error ?? "Something went wrong");
+      }
+
+      // Small buffer so the last animation step finishes before flipping to success
+      setTimeout(() => {
+        setIsSubmitting(false);
+        setSubmitSuccess(true);
+      }, 800);
+    } catch (err) {
+      setIsSubmitting(false);
+      setSubmitError(err instanceof Error ? err.message : "Failed to send message");
+    }
   };
 
   const handleReset = () => {
@@ -167,6 +191,7 @@ export default function Contact() {
       message: "",
     });
     setSubmitSuccess(false);
+    setSubmitError(null);
     setSimSteps([]);
     setCurrentStepIndex(-1);
   };
@@ -296,6 +321,7 @@ export default function Contact() {
                           value={formData.name}
                           onChange={handleInputChange}
                           placeholder='"John Doe"'
+                          suppressHydrationWarning
                           className={`w-full bg-black/30 border ${
                             formErrors.name ? "border-red-500/50" : "border-white/5"
                           } focus:border-brand-cyan/40 rounded px-3 py-2 text-foreground focus:outline-none placeholder:text-white/10`}
@@ -318,6 +344,7 @@ export default function Contact() {
                           value={formData.email}
                           onChange={handleInputChange}
                           placeholder='"john.doe@example.com"'
+                          suppressHydrationWarning
                           className={`w-full bg-black/30 border ${
                             formErrors.email ? "border-red-500/50" : "border-white/5"
                           } focus:border-brand-cyan/40 rounded px-3 py-2 text-foreground focus:outline-none placeholder:text-white/10`}
@@ -339,6 +366,7 @@ export default function Contact() {
                             name="subject"
                             value={formData.subject}
                             onChange={handleInputChange}
+                            suppressHydrationWarning
                             className="w-full bg-black/40 border border-white/5 focus:border-brand-cyan/40 rounded px-3 py-2 text-foreground focus:outline-none appearance-none cursor-pointer"
                           >
                             <option value="Hiring / Project">&quot;Hiring / Project&quot;</option>
@@ -362,6 +390,7 @@ export default function Contact() {
                           onChange={handleInputChange}
                           placeholder='"Type your secure payload message here..."'
                           rows={4}
+                          suppressHydrationWarning
                           className={`w-full bg-black/30 border ${
                             formErrors.message ? "border-red-500/50" : "border-white/5"
                           } focus:border-brand-cyan/40 rounded px-3 py-2 text-foreground focus:outline-none placeholder:text-white/10 resize-none`}
@@ -375,7 +404,12 @@ export default function Contact() {
                     </div>
 
                     {/* Submit Button Action */}
-                    <div className="pt-4 select-none">
+                    <div className="pt-4 select-none space-y-3">
+                      {submitError && (
+                        <div className="text-[11px] text-red-400 font-mono bg-red-500/5 border border-red-500/20 rounded px-3 py-2">
+                          [!] Transmission failed: {submitError}
+                        </div>
+                      )}
                       <button
                         type="submit"
                         className="group flex items-center justify-center gap-2 rounded bg-gradient-to-r from-brand-blue to-brand-cyan px-6 py-2.5 text-xs font-semibold text-white shadow-lg hover:shadow-cyan-500/20 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer w-full sm:w-auto"
@@ -421,8 +455,7 @@ export default function Contact() {
                           <span className="animate-pulse">●</span>
                           <span className="animate-pulse">●</span>
                         </div>
-                      )}
-                    </div>
+                      )}                    </div>
 
                     <div className="text-[10px] text-muted-foreground border-t border-white/5 pt-4 flex justify-between select-none">
                       <span>SECURE TRANSIT PORT: 443</span>
@@ -458,16 +491,16 @@ export default function Contact() {
   "status": "success",
   "data": {
     "sender": "${formData.name}",
-    "relay_service": "ops-slack-relay",
+    "relay_service": "resend-email-relay",
     "delivery_status": "delivered",
-    "message": "Payload forwarded to Prasanna Suresh Naik."
+    "message": "Email forwarded to Prasanna Suresh Naik."
   },
   "pipeline_logs": [
-    "webhook_received",
-    "slack_notification_dispatched_ok",
-    "email_copy_sent_ok"
+    "api_request_received",
+    "resend_relay_accepted",
+    "email_delivered_ok"
   ],
-  "tracking_id": "msg-${Math.random().toString(36).substring(2, 11)}"
+  "tracking_id": "msg-${trackingId}"
 }`}
                       </div>
 

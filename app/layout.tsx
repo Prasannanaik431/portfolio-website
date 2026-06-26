@@ -90,7 +90,7 @@ export default function RootLayout({
         />
       </head>
       <body
-        className="font-sans antialiased text-foreground bg-background transition-colors duration-300 overflow-x-hidden cursor-none"
+        className="font-sans antialiased text-foreground bg-background transition-colors duration-300 overflow-x-hidden"
       >
         <ThemeProvider
           attribute="class"

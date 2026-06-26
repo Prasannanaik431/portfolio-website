@@ -5,6 +5,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { MDXRemote } from "next-mdx-remote/rsc";
 import rehypePrettyCode from "rehype-pretty-code";
+import rehypeSlug from "rehype-slug";
 import { Calendar, Clock, ArrowLeft, ArrowRight, User } from "lucide-react";
 
 import { getPostBySlug, getAllPosts, getRelatedPosts, getPrevNextPosts } from "@/lib/blog";
@@ -59,24 +60,33 @@ interface TocItem {
 function extractHeadings(content: string): TocItem[] {
   const headings: TocItem[] = [];
   const lines = content.split("\n");
-  
+  const seen: Record<string, number> = {};
+
   lines.forEach((line) => {
     const match = line.match(/^(#{2,3})\s+(.+)$/);
     if (match) {
       const level = match[1].length;
       const text = match[2].trim();
-      // Generate clean url slug ID
-      const id = text
+      // rehype-slug uses github-slugger style: lowercase, keep unicode letters/digits, spaces → hyphens
+      let id = text
         .toLowerCase()
-        .replace(/[^a-z0-9\s-]/g, "")
+        .replace(/[^\w\s-]/g, "")   // strip non-word chars except hyphen
         .replace(/\s+/g, "-")
         .replace(/-+/g, "-")
-        .trim();
-        
+        .replace(/^-|-$/g, "");
+
+      // Handle duplicates the same way github-slugger does
+      if (seen[id] !== undefined) {
+        seen[id]++;
+        id = `${id}-${seen[id]}`;
+      } else {
+        seen[id] = 0;
+      }
+
       headings.push({ id, text, level });
     }
   });
-  
+
   return headings;
 }
 
@@ -96,6 +106,9 @@ export default async function BlogPostPage({ params }: PageProps) {
     mdxOptions: {
       remarkPlugins: [],
       rehypePlugins: [
+        // rehype-slug MUST come before rehype-pretty-code so heading IDs are
+        // applied before the highlighter processes code blocks
+        rehypeSlug,
         [
           rehypePrettyCode,
           {
