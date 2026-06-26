@@ -178,8 +178,10 @@ export default function Contact() {
         setSubmitSuccess(true);
       }, 800);
     } catch (err) {
+      // Show failure terminal screen — never expose raw error text
+      console.error(err);
       setIsSubmitting(false);
-      setSubmitError(err instanceof Error ? err.message : "Failed to send message");
+      setSubmitError("transmission_failed");
     }
   };
 
@@ -301,7 +303,7 @@ export default function Contact() {
               
               <AnimatePresence mode="wait">
                 {/* STATE 1: Standard Input Form */}
-                {!isSubmitting && !submitSuccess && (
+                {!isSubmitting && !submitSuccess && !submitError && (
                   <motion.form
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
@@ -404,12 +406,7 @@ export default function Contact() {
                     </div>
 
                     {/* Submit Button Action */}
-                    <div className="pt-4 select-none space-y-3">
-                      {submitError && (
-                        <div className="text-[11px] text-red-400 font-mono bg-red-500/5 border border-red-500/20 rounded px-3 py-2">
-                          [!] Transmission failed: {submitError}
-                        </div>
-                      )}
+                    <div className="pt-4 select-none">
                       <button
                         type="submit"
                         className="group flex items-center justify-center gap-2 rounded bg-gradient-to-r from-brand-blue to-brand-cyan px-6 py-2.5 text-xs font-semibold text-white shadow-lg hover:shadow-cyan-500/20 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer w-full sm:w-auto"
@@ -517,6 +514,52 @@ export default function Contact() {
                       >
                         <Terminal className="h-3.5 w-3.5 text-brand-cyan" />
                         <span>$ clear &amp;&amp; reset_shell</span>
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* STATE 4: Failure Console Report */}
+                {submitError && (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.98 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="flex-1 flex flex-col justify-between text-left h-full min-h-[380px]"
+                  >
+                    <div className="space-y-4">
+                      <div className="text-muted-foreground select-none">
+                        $ curl -i -X POST https://api.prasanna.naik/v1/contact
+                      </div>
+
+                      <div className="font-mono text-white/90 space-y-1">
+                        <div><span className="text-red-400 font-bold">HTTP/2 503 Service Unavailable</span></div>
+                        <div><span className="text-muted-foreground">content-type:</span> application/json</div>
+                        <div><span className="text-muted-foreground">date:</span> {new Date().toUTCString()}</div>
+                      </div>
+
+                      <div className="bg-black/30 border border-red-500/20 rounded p-4 text-[11px] font-mono leading-relaxed text-red-400 overflow-x-auto no-scrollbar">
+{`{
+  "status": "error",
+  "code": 503,
+  "message": "Relay unavailable. Please try again or reach out directly.",
+  "fallback": "prasannanaik431@gmail.com"
+}`}
+                      </div>
+
+                      <div className="flex items-start gap-2 text-red-400 font-bold text-xs select-none">
+                        <span className="mt-0.5 h-4 w-4 flex-shrink-0 rounded-full border border-red-500/30 bg-red-500/10 flex items-center justify-center text-[9px]">!</span>
+                        <span>Transmission failed. Email directly at <a href="mailto:prasannanaik431@gmail.com" className="underline hover:text-red-300 transition-colors">prasannanaik431@gmail.com</a></span>
+                      </div>
+                    </div>
+
+                    <div className="pt-6 select-none">
+                      <button
+                        onClick={handleReset}
+                        className="group flex items-center gap-2 rounded border border-white/10 hover:border-red-500/20 hover:text-red-400 bg-white/5 hover:bg-white/10 px-4 py-2 text-xs font-semibold font-mono tracking-wider transition-all"
+                      >
+                        <Terminal className="h-3.5 w-3.5 text-red-400" />
+                        <span>$ retry connection</span>
                       </button>
                     </div>
                   </motion.div>

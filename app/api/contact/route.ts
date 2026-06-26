@@ -33,11 +33,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Send email to you (notification of new contact)
+    // "from" must be a domain YOU own/verified in Resend — email APIs don't allow
+    // arbitrary sender addresses. The visitor's email goes in replyTo, so hitting
+    // Reply in Gmail/Outlook goes directly back to them.
     const { error } = await resend.emails.send({
-      from: FROM_EMAIL,
-      to: TO_EMAIL,
-      replyTo: email,          // Replying in Gmail goes straight to the sender
+      from: FROM_EMAIL,          // your verified sender (e.g. contact@yourdomain.com)
+      to: TO_EMAIL,              // your inbox — prasannanaik431@gmail.com
+      replyTo: email,            // visitor's email — Reply goes straight to them
       subject: `[Portfolio Contact] ${subject} — from ${name}`,
       html: `
         <div style="font-family: 'Courier New', monospace; background: #0a0a0a; color: #e2e8f0; padding: 32px; border-radius: 8px; max-width: 600px;">
