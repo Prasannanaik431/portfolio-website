@@ -1,0 +1,665 @@
+---
+title: "Platform Observability Stack: Prometheus, Grafana, ELK & LLM-Powered Anomaly Detection"
+date: "2026-06-20"
+excerpt: "How to build a production observability platform with Prometheus, Grafana, Elasticsearch, and an LLM-powered log analyzer that surfaces root causes automatically."
+tags: ["Observability", "Prometheus", "Grafana", "Elasticsearch", "Platform Engineering", "Kubernetes"]
+author: "Prasanna Suresh Naik"
+readTime: "15 min read"
+slug: "platform-observability-prometheus-grafana-elk"
+---
+
+# Platform Observability Stack: Prometheus, Grafana, ELK & LLM-Powered Anomaly Detection
+
+Deploying to production without observability is flying blind. At Mareana, I built a platform-level observability stack that spans 35+ environments — combining Prometheus, Grafana, Elasticsearch, Kibana, and an LLM-powered log anomaly detector that automatically surfaces root causes before engineers even look at dashboards.
+
+This post documents the full architecture, implementation details, and the lessons learned running it at scale.
+
+---
+
+## Architecture Overview
+
+The stack has two planes: **metrics** and **logs**.
+
+```
+                         ┌─────────────────────────────────────────┐
+                         │           Kubernetes Cluster             │
+                         │                                          │
+  Microservices ──────>  │  Prometheus (scrape)  Filebeat (tail)   │
+  Node Exporters ──────> │      │                    │              │
+  cAdvisor ────────────> │      ▼                    ▼              │
+                         └────────────────────────────────────────── 
+                                │                    │
+                                ▼                    ▼
+                         Prometheus              Elasticsearch
+                         Thanos (long-term)      (Logstash ingest)
+                                │                    │
+                                ▼                    ▼
+                           Grafana              Kibana Dashboards
+                                │
+                                ▼
+                        AlertManager ──> Slack / PagerDuty
+                                │
+                                ▼
+                        LLM Anomaly Analyzer
+                        (FastAPI + OpenAI/Bedrock)
+```
+
+---
+
+## 1. Prometheus: Metrics Collection
+
+We deploy Prometheus using the `kube-prometheus-stack` Helm chart, which bundles Prometheus, AlertManager, Grafana, and all the standard recording rules.
+
+### Helm Deployment
+
+```bash
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo update
+
+helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
+  --namespace monitoring \
+  --create-namespace \
+  --values prometheus-values.yaml
+```
+
+### Custom Values
+
+```yaml
+# prometheus-values.yaml
+
+prometheus:
+  prometheusSpec:
+    retention: 15d
+    retentionSize: 50GB
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 100Gi
+
+    # Scrape all ServiceMonitors across all namespaces
+    serviceMonitorSelectorNilUsesHelmValues: false
+    serviceMonitorSelector: {}
+    serviceMonitorNamespaceSelector: {}
+
+    # External labels help identify which cluster the metrics come from
+    externalLabels:
+      cluster: ems-prod-us-east
+      environment: production
+
+alertmanager:
+  config:
+    global:
+      slack_api_url: "https://hooks.slack.com/services/XXXX/YYYY/ZZZZ"
+    
+    route:
+      group_by: ['alertname', 'cluster', 'service']
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 12h
+      receiver: 'slack-alerts'
+      routes:
+        - match:
+            severity: critical
+          receiver: pagerduty-critical
+        - match:
+            severity: warning
+          receiver: slack-alerts
+
+    receivers:
+      - name: 'slack-alerts'
+        slack_configs:
+          - channel: '#platform-alerts'
+            title: '{{ template "slack.default.title" . }}'
+            text: '{{ template "slack.default.text" . }}'
+            send_resolved: true
+
+      - name: 'pagerduty-critical'
+        pagerduty_configs:
+          - routing_key: "${PAGERDUTY_INTEGRATION_KEY}"
+            description: '{{ template "pagerduty.default.description" . }}'
+```
+
+---
+
+## 2. Custom ServiceMonitors for Application Metrics
+
+Every microservice exposes a `/metrics` endpoint. The platform framework auto-creates a `ServiceMonitor` for each service:
+
+```yaml
+# Added to the app-template Helm chart
+{{- if .Values.metrics.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "app-template.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "app-template.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "app-template.selectorLabels" . | nindent 6 }}
+  endpoints:
+    - port: http
+      path: {{ .Values.metrics.path | default "/metrics" }}
+      interval: {{ .Values.metrics.interval | default "30s" }}
+      scrapeTimeout: 10s
+{{- end }}
+```
+
+Services enable metrics in their values:
+
+```yaml
+metrics:
+  enabled: true
+  path: /actuator/prometheus
+  interval: 15s
+```
+
+---
+
+## 3. Custom Prometheus Alert Rules
+
+Beyond the default alerts, we define application-level alert rules:
+
+```yaml
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: ems-application-alerts
+  namespace: monitoring
+spec:
+  groups:
+    - name: ems.application
+      interval: 60s
+      rules:
+        # High error rate
+        - alert: HighErrorRate
+          expr: |
+            (
+              sum(rate(http_requests_total{status=~"5.."}[5m])) by (service, namespace)
+              /
+              sum(rate(http_requests_total[5m])) by (service, namespace)
+            ) > 0.05
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "High error rate on {{ $labels.service }}"
+            description: "{{ $labels.service }} has error rate {{ $value | humanizePercentage }} over the last 5 minutes."
+
+        # P99 latency above 1s
+        - alert: HighP99Latency
+          expr: |
+            histogram_quantile(0.99,
+              sum(rate(http_request_duration_seconds_bucket[5m])) by (le, service)
+            ) > 1
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High p99 latency on {{ $labels.service }}"
+            description: "P99 latency is {{ $value }}s for service {{ $labels.service }}"
+
+        # Pod OOMKill
+        - alert: PodOOMKilled
+          expr: |
+            kube_pod_container_status_last_terminated_reason{reason="OOMKilled"} == 1
+          for: 0m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Pod OOMKilled: {{ $labels.pod }}"
+            description: "Container {{ $labels.container }} in pod {{ $labels.pod }} was OOMKilled. Increase memory limits."
+```
+
+---
+
+## 4. Grafana Dashboards as Code
+
+Dashboards are stored in Git and auto-provisioned via ConfigMaps:
+
+```yaml
+# platform-overview-dashboard-configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: platform-overview-dashboard
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"   # Grafana sidecar picks this up automatically
+data:
+  platform-overview.json: |
+    {
+      "uid": "platform-overview-v1",
+      "title": "Platform Overview",
+      "tags": ["platform", "kubernetes"],
+      "panels": [
+        {
+          "title": "Request Rate by Service",
+          "type": "timeseries",
+          "targets": [
+            {
+              "expr": "sum(rate(http_requests_total[2m])) by (service)",
+              "legendFormat": "{{service}}"
+            }
+          ]
+        },
+        {
+          "title": "Error Rate %",
+          "type": "stat",
+          "targets": [
+            {
+              "expr": "sum(rate(http_requests_total{status=~'5..'}[5m])) / sum(rate(http_requests_total[5m])) * 100",
+              "legendFormat": "Error Rate"
+            }
+          ]
+        }
+      ]
+    }
+```
+
+---
+
+## 5. ELK Stack: Log Aggregation
+
+Logs flow from pods through Filebeat → Logstash → Elasticsearch → Kibana.
+
+### Filebeat DaemonSet
+
+Filebeat runs as a DaemonSet, tailing container logs from all nodes:
+
+```yaml
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: filebeat
+  namespace: monitoring
+spec:
+  selector:
+    matchLabels:
+      app: filebeat
+  template:
+    spec:
+      serviceAccountName: filebeat
+      containers:
+        - name: filebeat
+          image: docker.elastic.co/beats/filebeat:8.13.0
+          args: ["-c", "/etc/filebeat.yml", "-e"]
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          volumeMounts:
+            - name: config
+              mountPath: /etc/filebeat.yml
+              subPath: filebeat.yml
+            - name: varlog
+              mountPath: /var/log
+            - name: varlibdockercontainers
+              mountPath: /var/lib/docker/containers
+              readOnly: true
+      volumes:
+        - name: varlog
+          hostPath:
+            path: /var/log
+        - name: varlibdockercontainers
+          hostPath:
+            path: /var/lib/docker/containers
+        - name: config
+          configMap:
+            name: filebeat-config
+```
+
+### Filebeat Configuration
+
+```yaml
+# filebeat.yml
+filebeat.autodiscover:
+  providers:
+    - type: kubernetes
+      node: ${NODE_NAME}
+      hints.enabled: true
+      hints.default_config:
+        type: container
+        paths:
+          - /var/log/containers/*${data.kubernetes.container.id}.log
+
+processors:
+  - add_kubernetes_metadata:
+      host: ${NODE_NAME}
+      matchers:
+        - logs_path:
+            logs_path: "/var/log/containers/"
+
+  # Parse JSON logs from structured application logging
+  - decode_json_fields:
+      fields: ["message"]
+      overwrite_keys: true
+      add_error_key: false
+
+output.logstash:
+  hosts: ["logstash-service:5044"]
+```
+
+### Logstash Pipeline
+
+Logstash enriches and transforms logs before writing to Elasticsearch:
+
+```ruby
+# logstash/pipeline/main.conf
+
+input {
+  beats {
+    port => 5044
+  }
+}
+
+filter {
+  # Extract severity from structured JSON logs
+  if [level] {
+    mutate {
+      add_field => { "log_severity" => "%{level}" }
+    }
+  }
+
+  # Parse grok for non-structured legacy logs
+  if ![level] and [message] =~ /^\d{4}-\d{2}-\d{2}/ {
+    grok {
+      match => {
+        "message" => "%{TIMESTAMP_ISO8601:log_timestamp} %{LOGLEVEL:log_severity} \[%{DATA:thread}\] %{GREEDYDATA:log_message}"
+      }
+    }
+  }
+
+  # Annotate ERROR and WARN logs for easier filtering
+  if [log_severity] in ["ERROR", "FATAL"] {
+    mutate {
+      add_field => { "requires_attention" => true }
+    }
+  }
+
+  # Drop health check noise
+  if [message] =~ "/health" or [message] =~ "/ready" {
+    drop {}
+  }
+}
+
+output {
+  elasticsearch {
+    hosts    => ["https://elasticsearch-service:9200"]
+    user     => "${ES_USER}"
+    password => "${ES_PASSWORD}"
+    index    => "k8s-logs-%{[kubernetes][namespace]}-%{+YYYY.MM.dd}"
+    ssl      => true
+    cacert   => "/etc/ssl/certs/ca.crt"
+  }
+}
+```
+
+---
+
+## 6. LLM-Powered Anomaly Detector
+
+This is the most impactful layer. Instead of engineers scrolling through Kibana at 2am, a FastAPI service fetches recent error logs, sends them to an LLM, and posts a root cause summary to Slack.
+
+### FastAPI Log Analyzer
+
+```python
+# log_analyzer/main.py
+
+import os
+import json
+from datetime import datetime, timedelta
+from fastapi import FastAPI, BackgroundTasks
+from elasticsearch import Elasticsearch
+from openai import OpenAI
+import httpx
+
+app    = FastAPI()
+es     = Elasticsearch(os.environ["ES_URL"], api_key=os.environ["ES_API_KEY"])
+openai = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+
+SLACK_WEBHOOK = os.environ["SLACK_WEBHOOK_URL"]
+
+
+def fetch_recent_errors(namespace: str, minutes: int = 10) -> list[dict]:
+    """Fetch recent ERROR/FATAL logs from Elasticsearch for a namespace."""
+    query = {
+        "query": {
+            "bool": {
+                "filter": [
+                    {"term": {"kubernetes.namespace": namespace}},
+                    {"terms": {"log_severity": ["ERROR", "FATAL"]}},
+                    {"range": {
+                        "@timestamp": {
+                            "gte": f"now-{minutes}m",
+                            "lte": "now"
+                        }
+                    }}
+                ]
+            }
+        },
+        "sort": [{"@timestamp": {"order": "desc"}}],
+        "size": 50
+    }
+
+    response = es.search(
+        index=f"k8s-logs-{namespace}-*",
+        body=query
+    )
+
+    logs = []
+    for hit in response["hits"]["hits"]:
+        source = hit["_source"]
+        logs.append({
+            "timestamp": source.get("@timestamp"),
+            "service":   source.get("kubernetes", {}).get("labels", {}).get("app", "unknown"),
+            "message":   source.get("message", ""),
+            "severity":  source.get("log_severity", "ERROR"),
+        })
+
+    return logs
+
+
+def analyze_with_llm(logs: list[dict], namespace: str) -> str:
+    """Send logs to LLM and get a structured root cause analysis."""
+    if not logs:
+        return "No errors detected in the analysis window."
+
+    # Format logs for the prompt
+    log_text = "\n".join([
+        f"[{l['timestamp']}] [{l['service']}] {l['severity']}: {l['message']}"
+        for l in logs[:30]  # Cap at 30 entries to stay within token limits
+    ])
+
+    prompt = f"""You are a senior platform engineer analyzing Kubernetes application logs.
+
+Below are recent ERROR/FATAL log entries from namespace '{namespace}' in the last 10 minutes:
+
+{log_text}
+
+Provide a concise root cause analysis in this exact format:
+1. **Summary**: One-sentence overview of what went wrong
+2. **Root Cause**: The most likely technical cause
+3. **Affected Services**: Which services are impacted
+4. **Recommended Action**: Immediate steps to resolve
+5. **Severity Assessment**: Critical / High / Medium
+
+Keep the analysis factual and actionable. Maximum 200 words."""
+
+    response = openai.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {"role": "system", "content": "You are a concise, expert Kubernetes platform engineer."},
+            {"role": "user",   "content": prompt}
+        ],
+        max_tokens=400,
+        temperature=0.2  # Low temperature for factual analysis
+    )
+
+    return response.choices[0].message.content
+
+
+def post_to_slack(analysis: str, namespace: str, error_count: int):
+    """Post the LLM analysis to Slack."""
+    payload = {
+        "blocks": [
+            {
+                "type": "header",
+                "text": {
+                    "type": "plain_text",
+                    "text": f"🔍 Log Anomaly Detected — {namespace}"
+                }
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*{error_count} errors* detected in the last 10 minutes.\n\n{analysis}"
+                }
+            },
+            {
+                "type": "context",
+                "elements": [{
+                    "type": "mrkdwn",
+                    "text": f"Analysis time: {datetime.utcnow().isoformat()}Z | Source: LLM Anomaly Analyzer"
+                }]
+            }
+        ]
+    }
+
+    with httpx.Client() as client:
+        client.post(SLACK_WEBHOOK, json=payload, timeout=10)
+
+
+@app.post("/analyze/{namespace}")
+async def analyze_namespace(namespace: str, background_tasks: BackgroundTasks):
+    """Trigger analysis for a specific namespace."""
+    logs = fetch_recent_errors(namespace, minutes=10)
+
+    if len(logs) < 5:
+        return {"status": "ok", "message": f"Only {len(logs)} errors — below threshold"}
+
+    analysis = analyze_with_llm(logs, namespace)
+    background_tasks.add_task(post_to_slack, analysis, namespace, len(logs))
+
+    return {
+        "status": "analyzed",
+        "namespace": namespace,
+        "error_count": len(logs),
+        "analysis_preview": analysis[:200]
+    }
+```
+
+### Scheduled Cronjob to Trigger Analysis
+
+```yaml
+# K8s CronJob — triggers analysis every 10 minutes
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: log-anomaly-analyzer
+  namespace: monitoring
+spec:
+  schedule: "*/10 * * * *"
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: analyzer
+              image: gcr.io/naik-prod/log-analyzer:latest
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  for ns in prod-ems prod-billing prod-auth; do
+                    curl -s -X POST "http://log-analyzer-service:8080/analyze/$ns"
+                  done
+              envFrom:
+                - secretRef:
+                    name: log-analyzer-secrets
+```
+
+---
+
+## 7. Grafana SLO Dashboard
+
+We track SLOs per service using Prometheus recording rules:
+
+```yaml
+# slo-recording-rules.yaml
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: slo-recording-rules
+  namespace: monitoring
+spec:
+  groups:
+    - name: slo_availability
+      interval: 30s
+      rules:
+        # 5-minute availability window
+        - record: slo:availability:5m
+          expr: |
+            (
+              sum(rate(http_requests_total{status!~"5.."}[5m])) by (service)
+              /
+              sum(rate(http_requests_total[5m])) by (service)
+            )
+
+        # 28-day rolling availability (for SLO reports)
+        - record: slo:availability:28d
+          expr: |
+            (
+              sum(rate(http_requests_total{status!~"5.."}[28d])) by (service)
+              /
+              sum(rate(http_requests_total[28d])) by (service)
+            )
+
+        # Error budget remaining (target: 99.9% availability = 0.1% budget)
+        - record: slo:error_budget_remaining
+          expr: |
+            1 - ((1 - slo:availability:28d) / 0.001)
+```
+
+---
+
+## Observability Outcomes at Mareana
+
+After full rollout across all production namespaces:
+
+| Metric | Before | After |
+|--------|--------|-------|
+| Mean time to detect (MTTD) | 15–30 min (manual Kibana) | < 3 min (LLM alert) |
+| Mean time to root cause | 45–90 min | 10–15 min |
+| False-positive Slack alerts | ~40% | < 8% |
+| Dashboard coverage (services with metrics) | 60% | 100% |
+| Log retention with full query capability | 3 days | 30 days |
+| Cost of observability stack | N/A (no stack) | ~$180/mo (vs $2,400/mo for Datadog equivalent) |
+
+---
+
+## Key Takeaways
+
+1. **Metrics and logs serve different purposes** — metrics tell you *that* something is wrong; logs tell you *why*. You need both.
+2. **Noise is the enemy of alerting** — filter health check logs, tune alert thresholds, add `for: 2m` to avoid flapping.
+3. **LLMs as a first-pass triage layer** — not a replacement for engineers, but a way to surface the signal before an engineer opens Kibana.
+4. **Dashboards as code** — store Grafana JSON in Git so dashboards survive cluster rebuilds and can be peer-reviewed.
+5. **SLO-driven alerts outperform threshold alerts** — alert on error budget burn rate, not raw error counts.
+
+---
+
+## References
+
+- [kube-prometheus-stack Helm Chart](https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack)
+- [Filebeat Kubernetes Autodiscover](https://www.elastic.co/guide/en/beats/filebeat/current/filebeat-autodiscover-kubernetes.html)
+- [Prometheus Alerting Rules](https://prometheus.io/docs/prometheus/latest/configuration/alerting_rules/)
+- [OpenAI Chat Completions API](https://platform.openai.com/docs/api-reference/chat)
+- [Google SRE Book: SLOs](https://sre.google/sre-book/service-level-objectives/)

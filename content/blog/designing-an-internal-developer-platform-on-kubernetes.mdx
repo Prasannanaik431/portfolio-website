@@ -1,0 +1,77 @@
+---
+title: "Designing an Internal Developer Platform on Kubernetes"
+date: "2026-06-10"
+excerpt: "Explore the architecture of custom developer portals, Golden Paths templates, and API integrations that boost developer experience."
+tags: ["Platform Engineering", "IDP", "Kubernetes", "Developer Experience"]
+cover: "/blog/idp-cover.svg"
+author: "Prasanna Suresh Naik"
+readTime: "8 min read"
+slug: "designing-an-internal-developer-platform-on-kubernetes"
+---
+
+# Designing an Internal Developer Platform on Kubernetes
+
+Modern Kubernetes platforms are incredibly powerful, but exposing direct raw YAML configs to product engineers can result in configuration drift, steep learning curves, and security vulnerabilities. 
+
+An **Internal Developer Platform (IDP)** bridges this gap by creating self-service infrastructure portals, standardizing deployment structures, and shielding developers from complex operations.
+
+---
+
+## 1. What is an IDP?
+
+An IDP is a set of tools, services, and technologies that platform engineering teams package into a product. It allows application developers to self-service:
+1. **Application Scaffolding**: Pre-packaged templates containing basic code.
+2. **Database Provisioning**: One-click databases with backups and configurations pre-applied.
+3. **Environment Lifecycles**: Provisioning test, sandbox, and staging environments dynamically.
+4. **CI/CD Triggers**: Automating repository webhooks, build checks, and deployment manifests.
+
+---
+
+## 2. Platform Architecture & Golden Paths
+
+To build a solid platform, you establish **Golden Paths**—pre-validated, secure pathways for shipping services. Here's a common blueprint:
+
+```
+[Developer Portal / UI] ──> [Platform API] ──> [GitRepository (GitOps)]
+                                   │
+                                   ├──> [Terraform Controller] ──> AWS / Azure
+                                   └──> [K8s Operator] ──> App Namespaces
+```
+
+---
+
+## 3. Scaffolding dynamic Namespaces via CRDs
+
+Rather than writing custom microservice interfaces, we can define custom cluster resources (Custom Resource Definitions) to manage developer environments:
+
+```yaml
+apiVersion: platform.naik.org/v1alpha1
+kind: DeveloperEnvironment
+metadata:
+  name: billing-service-staging
+  namespace: platform-system
+spec:
+  owner: billing-team
+  projectName: billing-service
+  database:
+    engine: postgres
+    version: "15"
+    storageGb: 20
+  ingress:
+    subdomain: billing-stage
+  resources:
+    profile: medium # Resolves to predefined CPU/Mem allocations
+```
+
+---
+
+## 4. Automating Database Deployments
+
+Once the custom operator detects a `DeveloperEnvironment` resource, it triggers Ansible or Terraform scripts to provision the Postgres DB and sets up a sealed secret:
+
+```bash
+# Verify database operator execution logs
+kubectl logs -f deployment/db-provisioner-operator -n platform-system
+```
+
+By providing these abstract controls, developers can build, run, and scale applications safely without manual ticket filing, improving release cycles while retaining platform governance.

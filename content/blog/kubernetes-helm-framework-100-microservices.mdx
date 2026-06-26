@@ -1,0 +1,455 @@
+---
+title: "Helm Deployment Framework: Standardizing 100+ Microservices on Kubernetes"
+date: "2026-06-18"
+excerpt: "How I built a reusable Helm chart framework that reduced YAML boilerplate by 90% and standardized deployments across 100+ microservices in a multi-tenant Kubernetes platform."
+tags: ["Helm", "Kubernetes", "Platform Engineering", "DevOps", "GitOps"]
+author: "Prasanna Suresh Naik"
+readTime: "12 min read"
+slug: "kubernetes-helm-framework-100-microservices"
+---
+
+# Helm Deployment Framework: Standardizing 100+ Microservices on Kubernetes
+
+When you're managing 100+ microservices across 35+ environments, copy-pasted Kubernetes YAML becomes a liability. At Mareana, every new service started with someone duplicating an existing deployment manifest and tweaking values — leading to inconsistent probes, missing resource limits, and no standard for secrets injection.
+
+This post walks through the **reusable Helm framework** I built that replaced that chaos with a single, configurable chart. It reduced YAML per service by 90% and became the deployment backbone for our entire platform.
+
+---
+
+## The Problem: 100 Services, 100 Snowflakes
+
+Before the framework, each microservice had its own raw YAML:
+
+```
+services/
+├── auth-service/
+│   ├── deployment.yaml    (250 lines)
+│   ├── service.yaml
+│   ├── hpa.yaml
+│   └── ingress.yaml
+├── billing-service/
+│   ├── deployment.yaml    (280 lines — slightly different probes)
+│   ├── service.yaml       (different port naming convention)
+│   └── ingress.yaml       (missing annotations from auth-service)
+...
+```
+
+Symptoms:
+- Teams copy templates and forget to update liveness probe paths — silent failures in production
+- Resource limits absent on half the services — noisy neighbor incidents
+- Secrets mounted inconsistently — some as env vars, some as volume mounts
+- Any platform-wide change (new sidecar, new network label) requires 100 PRs
+
+---
+
+## The Solution: A Central Application Chart
+
+The framework is a single Helm chart — `app-template` — that every service consumes. Services don't define their own manifests. They only provide a `values.yaml`.
+
+```
+charts/
+└── app-template/
+    ├── Chart.yaml
+    ├── values.yaml           # Default values (production-safe baselines)
+    └── templates/
+        ├── deployment.yaml
+        ├── service.yaml
+        ├── hpa.yaml
+        ├── ingress.yaml
+        ├── pdb.yaml
+        ├── serviceaccount.yaml
+        ├── configmap.yaml
+        └── _helpers.tpl
+```
+
+A consuming service only needs:
+
+```yaml
+# auth-service/values.yaml  (20 lines instead of 250)
+image:
+  repository: gcr.io/naik-prod/auth-service
+  tag: "v2.4.1"
+
+service:
+  port: 8080
+
+ingress:
+  enabled: true
+  host: auth.ems.internal
+
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits:   { cpu: 500m, memory: 512Mi }
+
+secrets:
+  - name: AUTH_JWT_SECRET
+    secretRef: platform/prod/auth-jwt
+```
+
+That's the entire service definition. Everything else — probes, RBAC, HPA, PodDisruptionBudget — is handled by the framework with sensible defaults.
+
+---
+
+## 1. The Deployment Template
+
+The core deployment template uses conditional blocks so features activate only when configured:
+
+```yaml
+# templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "app-template.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "app-template.labels" . | nindent 4 }}
+    {{- with .Values.extraLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  annotations:
+    deployment.kubernetes.io/managed-by: helm
+    platform.naik.org/framework-version: {{ .Chart.Version | quote }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount | default 2 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "app-template.selectorLabels" . | nindent 6 }}
+  strategy:
+    {{- toYaml (.Values.strategy | default (dict "type" "RollingUpdate" "rollingUpdate" (dict "maxSurge" 1 "maxUnavailable" 0))) | nindent 4 }}
+  template:
+    metadata:
+      labels:
+        {{- include "app-template.labels" . | nindent 8 }}
+      annotations:
+        # Auto-reload pods when ConfigMap content changes
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "app-template.serviceAccountName" . }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 2000
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy | default "IfNotPresent" }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port | default 8080 }}
+              protocol: TCP
+          {{- if .Values.livenessProbe }}
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          {{- else }}
+          # Default liveness probe — override per service if needed
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.healthcheck.path | default "/health" }}
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 3
+          {{- end }}
+          {{- if .Values.readinessProbe }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          {{- else }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.healthcheck.readyPath | default "/ready" }}
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          {{- end }}
+          resources:
+            {{- toYaml (.Values.resources | default .Values.defaultResources) | nindent 12 }}
+          env:
+            - name: APP_ENV
+              value: {{ .Release.Namespace | quote }}
+            - name: APP_NAME
+              value: {{ include "app-template.fullname" . | quote }}
+            {{- with .Values.env }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- if .Values.secrets }}
+          envFrom:
+            {{- range .Values.secrets }}
+            - secretRef:
+                name: {{ .name }}-secret
+            {{- end }}
+          {{- end }}
+          {{- with .Values.volumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with .Values.volumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+```
+
+---
+
+## 2. Secrets Injection via External Secrets Operator
+
+Rather than managing K8s Secrets manually, the framework generates `ExternalSecret` resources that pull from AWS Secrets Manager or Azure Key Vault automatically.
+
+```yaml
+# templates/externalsecrets.yaml
+{{- range .Values.secrets }}
+---
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: {{ .name }}-secret
+  namespace: {{ $.Release.Namespace }}
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: {{ $.Values.secretStore | default "aws-secretsmanager" }}
+    kind: ClusterSecretStore
+  target:
+    name: {{ .name }}-secret
+    creationPolicy: Owner
+  data:
+    - secretKey: {{ .name }}
+      remoteRef:
+        key: {{ .secretRef }}
+{{- end }}
+```
+
+When a service defines:
+
+```yaml
+secrets:
+  - name: DB_PASSWORD
+    secretRef: platform/prod/db-password
+  - name: JWT_SECRET
+    secretRef: platform/prod/jwt-secret
+```
+
+The framework generates two `ExternalSecret` resources that pull from AWS Secrets Manager and inject the values as environment variables. No engineer ever handles raw secret values.
+
+---
+
+## 3. HPA with KEDA Integration
+
+For services that need custom scaling triggers (queue depth, Prometheus metrics), the framework supports both standard HPA and KEDA:
+
+```yaml
+# templates/hpa.yaml
+{{- if .Values.autoscaling.enabled }}
+{{- if .Values.autoscaling.keda }}
+# KEDA ScaledObject for custom metrics
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "app-template.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  scaleTargetRef:
+    name: {{ include "app-template.fullname" . }}
+  minReplicaCount: {{ .Values.autoscaling.minReplicas | default 1 }}
+  maxReplicaCount: {{ .Values.autoscaling.maxReplicas | default 10 }}
+  triggers:
+    {{- toYaml .Values.autoscaling.keda.triggers | nindent 4 }}
+{{- else }}
+# Standard HPA
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "app-template.fullname" . }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "app-template.fullname" . }}
+  minReplicas: {{ .Values.autoscaling.minReplicas | default 2 }}
+  maxReplicas: {{ .Values.autoscaling.maxReplicas | default 10 }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.autoscaling.targetCPU | default 70 }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.autoscaling.targetMemory | default 80 }}
+{{- end }}
+{{- end }}
+```
+
+A queue-based worker service can now configure KEDA triggers with just:
+
+```yaml
+autoscaling:
+  enabled: true
+  keda:
+    triggers:
+      - type: aws-sqs-queue
+        metadata:
+          queueURL: https://sqs.us-east-1.amazonaws.com/123/ems-jobs
+          awsRegion: us-east-1
+          targetQueueLength: "50"
+```
+
+---
+
+## 4. PodDisruptionBudget for Zero-Downtime Updates
+
+Every service running more than 1 replica gets a PDB by default, preventing Kubernetes from draining too many pods during node upgrades:
+
+```yaml
+# templates/pdb.yaml
+{{- if gt (int (.Values.replicaCount | default 2)) 1 }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "app-template.fullname" . }}
+spec:
+  minAvailable: {{ .Values.pdb.minAvailable | default "50%" }}
+  selector:
+    matchLabels:
+      {{- include "app-template.selectorLabels" . | nindent 6 }}
+{{- end }}
+```
+
+---
+
+## 5. Flux2 Integration: Automated Chart Version Bumps
+
+With Flux2's `ImageUpdateAutomation`, the framework integrates with GitOps to auto-bump image tags when new images are pushed to the container registry:
+
+```yaml
+# flux-system/image-policy-auth.yaml
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImageRepository
+metadata:
+  name: auth-service
+  namespace: flux-system
+spec:
+  image: gcr.io/naik-prod/auth-service
+  interval: 5m
+
+---
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImagePolicy
+metadata:
+  name: auth-service
+  namespace: flux-system
+spec:
+  imageRepositoryRef:
+    name: auth-service
+  policy:
+    semver:
+      range: ">=1.0.0"  # Only auto-deploy stable semver releases
+```
+
+When a new image tag like `v2.5.0` is pushed, Flux detects it, updates the `values.yaml` in Git, and triggers a reconciliation — deploying with zero human interaction.
+
+---
+
+## 6. Deploying: The Service Onboarding Workflow
+
+Adding a new service to the platform takes 15 minutes:
+
+```bash
+# 1. Create service values directory
+mkdir -p services/payment-service
+
+# 2. Create minimal values.yaml
+cat > services/payment-service/values.yaml << 'EOF'
+image:
+  repository: gcr.io/naik-prod/payment-service
+  tag: "v1.0.0"
+
+service:
+  port: 9090
+
+healthcheck:
+  path: /actuator/health
+  readyPath: /actuator/health/readiness
+
+resources:
+  requests: { cpu: 200m, memory: 256Mi }
+  limits:   { cpu: 1000m, memory: 1Gi }
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 8
+  targetCPU: 65
+
+secrets:
+  - name: STRIPE_SECRET_KEY
+    secretRef: platform/prod/stripe-secret-key
+  - name: DB_PASSWORD
+    secretRef: platform/prod/payments-db-password
+EOF
+
+# 3. Create HelmRelease for Flux
+cat > clusters/production/payment-service.yaml << 'EOF'
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: payment-service
+  namespace: prod-payments
+spec:
+  interval: 5m
+  chart:
+    spec:
+      chart: app-template
+      sourceRef:
+        kind: HelmRepository
+        name: naik-charts
+        namespace: flux-system
+  valuesFrom:
+    - kind: ConfigMap
+      name: payment-service-values
+EOF
+
+# 4. Lint and dry-run before committing
+helm lint charts/app-template -f services/payment-service/values.yaml
+helm template payment-service charts/app-template -f services/payment-service/values.yaml --dry-run
+```
+
+---
+
+## Metrics After Rollout
+
+| Metric | Before | After |
+|--------|--------|-------|
+| YAML lines per service | 250–350 | 20–40 |
+| Onboarding time for new service | 2–4 hours | 15 minutes |
+| Missing liveness probes | ~30% of services | 0% |
+| Services missing resource limits | ~40% | 0% |
+| Platform-wide change propagation | 100 PRs | 1 PR to `charts/app-template` |
+| Secrets handled via External Secrets | 0% | 100% |
+
+---
+
+## Key Takeaways
+
+1. **Services own values, not templates** — the chart is the platform's responsibility. Services only configure it.
+2. **Safe defaults everywhere** — resource limits, probes, PDB, and non-root security context are defaults, not opt-ins.
+3. **Secrets injection as a first-class feature** — never let raw secrets touch a `values.yaml`.
+4. **One PR to update the world** — any framework improvement reaches all 100+ services at the next sync.
+
+---
+
+## References
+
+- [Helm Chart Best Practices](https://helm.sh/docs/chart_best_practices/)
+- [External Secrets Operator](https://external-secrets.io/)
+- [Flux2 Image Automation](https://fluxcd.io/flux/guides/image-update/)
+- [KEDA Scalers Reference](https://keda.sh/docs/scalers/)

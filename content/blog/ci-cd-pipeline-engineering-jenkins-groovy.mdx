@@ -1,0 +1,280 @@
+---
+title: "CI/CD Pipeline Engineering with Jenkins Groovy Shared Libraries"
+date: "2026-06-10"
+excerpt: "A deep-dive into building enterprise-grade, reusable Jenkins CI/CD pipelines with Groovy Shared Libraries, SonarQube quality gates, and Dependency Track SBOM checks — reducing deployment time by 80%."
+tags: ["CI/CD", "Jenkins", "Groovy", "DevOps", "SonarQube", "Platform Engineering"]
+readingTime: 12
+---
+
+# CI/CD Pipeline Engineering with Jenkins Groovy Shared Libraries
+
+Modern platform teams don't write pipelines from scratch for every microservice. At Mareana, I architected a **Groovy-based Jenkins Shared Library (JSL)** framework that standardizes CI/CD across 100+ microservices — reducing pipeline boilerplate by 90% and cutting deployment cycle time from hours to minutes.
+
+This post walks through the architecture, implementation patterns, and lessons learned.
+
+---
+
+## Why Shared Libraries?
+
+Every team adding their own `Jenkinsfile` leads to:
+
+- **Drift**: Different services run different test steps, skip gates, or use outdated base images
+- **Security gaps**: Teams forget to add dependency scanning or quality gates
+- **Maintenance hell**: A single SonarQube URL change requires updating 100 Jenkinsfiles
+
+Groovy Shared Libraries solve this by centralizing pipeline logic in a versioned, reusable codebase.
+
+---
+
+## Repository Structure
+
+```bash
+# jenkins-shared-library/
+tree -L 3
+
+.
+├── vars/
+│   ├── buildAndPush.groovy       # Docker multi-arch build & push
+│   ├── runSonarAnalysis.groovy   # SonarQube code quality gate
+│   ├── dependencyTrack.groovy    # SBOM generation & upload
+│   ├── deployToKubernetes.groovy # Helm upgrade with rollback
+│   └── notifySlack.groovy        # Slack deployment notifications
+├── src/
+│   └── com/mareana/
+│       ├── PipelineConfig.groovy # Global config & defaults
+│       └── K8sClient.groovy      # kubectl wrapper functions
+├── resources/
+│   └── templates/
+│       └── Dockerfile.jinja      # Parameterized Dockerfile template
+└── CONTRIBUTING.md
+```
+
+---
+
+## The Core Pipeline
+
+A consuming `Jenkinsfile` in any microservice repo looks like this:
+
+```groovy
+@Library('mareana-shared-library@main') _
+
+pipeline {
+  agent { label 'k8s-agent' }
+
+  environment {
+    APP_NAME    = 'payment-service'
+    DOCKER_REPO = 'gcr.io/mareana-prod'
+    NAMESPACE   = 'prod-payments'
+    HELM_CHART  = './charts/payment-service'
+  }
+
+  stages {
+    stage('Build & Test') {
+      steps {
+        sh 'mvn clean package -DskipTests=false'
+      }
+    }
+
+    stage('SonarQube Analysis') {
+      steps {
+        runSonarAnalysis(
+          projectKey: env.APP_NAME,
+          threshold: 80
+        )
+      }
+    }
+
+    stage('SBOM & Dependency Track') {
+      steps {
+        dependencyTrack(
+          projectName: env.APP_NAME,
+          version: env.BUILD_NUMBER
+        )
+      }
+    }
+
+    stage('Docker Build & Push') {
+      steps {
+        buildAndPush(
+          image: "${env.DOCKER_REPO}/${env.APP_NAME}",
+          tag: env.GIT_COMMIT[0..7]
+        )
+      }
+    }
+
+    stage('Deploy to Kubernetes') {
+      steps {
+        deployToKubernetes(
+          namespace: env.NAMESPACE,
+          chart: env.HELM_CHART,
+          values: "values-prod.yaml"
+        )
+      }
+    }
+  }
+
+  post {
+    always {
+      notifySlack(status: currentBuild.result ?: 'SUCCESS')
+    }
+  }
+}
+```
+
+---
+
+## buildAndPush.groovy
+
+The build step supports multi-arch images and pushes to GCR/ECR:
+
+```groovy
+// vars/buildAndPush.groovy
+
+def call(Map config) {
+  def image = config.image
+  def tag   = config.tag ?: 'latest'
+  def platforms = config.platforms ?: 'linux/amd64,linux/arm64'
+
+  withCredentials([file(credentialsId: 'gcr-key', variable: 'GCR_KEY')]) {
+    sh """
+      cat \$GCR_KEY | docker login -u _json_key --password-stdin https://gcr.io
+      docker buildx create --use --name multi-arch-builder || true
+      docker buildx build \\
+        --platform ${platforms} \\
+        --tag ${image}:${tag} \\
+        --tag ${image}:latest \\
+        --push \\
+        --cache-from type=registry,ref=${image}:buildcache \\
+        --cache-to   type=registry,ref=${image}:buildcache,mode=max \\
+        .
+    """
+  }
+}
+```
+
+---
+
+## SonarQube Quality Gate
+
+The SonarQube step blocks the pipeline if code coverage drops below threshold:
+
+```groovy
+// vars/runSonarAnalysis.groovy
+
+def call(Map config) {
+  def projectKey = config.projectKey
+  def threshold  = config.threshold ?: 80
+
+  withSonarQubeEnv('SonarQube') {
+    sh """
+      sonar-scanner \\
+        -Dsonar.projectKey=${projectKey} \\
+        -Dsonar.sources=src \\
+        -Dsonar.coverage.exclusions=**/test/** \\
+        -Dsonar.qualitygate.wait=true
+    """
+  }
+
+  timeout(time: 2, unit: 'MINUTES') {
+    def qg = waitForQualityGate()
+    if (qg.status != 'OK') {
+      error "Quality gate failed: ${qg.status}. Coverage below ${threshold}%."
+    }
+  }
+}
+```
+
+---
+
+## Dependency Track SBOM Integration
+
+We generate a CycloneDX SBOM and upload it to Dependency Track for supply-chain visibility:
+
+```groovy
+// vars/dependencyTrack.groovy
+
+def call(Map config) {
+  def projectName = config.projectName
+  def version     = config.version
+
+  sh """
+    # Generate CycloneDX SBOM from Maven
+    mvn org.cyclonedx:cyclonedx-maven-plugin:makeAggregateBom
+
+    # Upload SBOM to Dependency Track
+    curl -s -X POST https://dtrack.mareana.internal/api/v1/bom \\
+      -H "X-Api-Key: \${DTRACK_API_KEY}" \\
+      -H "Content-Type: multipart/form-data" \\
+      -F "autoCreate=true" \\
+      -F "projectName=${projectName}" \\
+      -F "projectVersion=${version}" \\
+      -F "bom=@target/bom.xml"
+  """
+}
+```
+
+---
+
+## Helm Deployment with Auto-Rollback
+
+The deploy step performs a Helm upgrade and rolls back automatically on failure:
+
+```groovy
+// vars/deployToKubernetes.groovy
+
+def call(Map config) {
+  def namespace = config.namespace
+  def chart     = config.chart
+  def values    = config.values ?: 'values.yaml'
+  def release   = config.release ?: chart.split('/')[-1]
+
+  sh """
+    helm upgrade --install ${release} ${chart} \\
+      --namespace ${namespace} \\
+      --values ${values} \\
+      --atomic \\
+      --timeout 5m \\
+      --cleanup-on-fail \\
+      --history-max 5
+
+    # Verify rollout
+    kubectl rollout status deployment/${release} -n ${namespace} --timeout=3m
+  """
+}
+```
+
+The `--atomic` flag ensures Helm **rolls back automatically** if any pod fails to become Ready within the timeout.
+
+---
+
+## Results at Mareana
+
+After rolling out the Shared Library framework across all teams:
+
+| Metric | Before | After |
+|--------|--------|-------|
+| Pipeline setup time per new service | ~4 hours | ~10 minutes |
+| Deployment cycle time (build → prod) | 3–4 hours | 30–45 minutes |
+| SonarQube gate adherence | ~40% | 100% |
+| SBOM coverage | 0% | 100% |
+| Pipeline YAML lines per service | 250+ | 15–25 |
+
+---
+
+## Key Takeaways
+
+1. **Version your library** — tag releases (`@v1.2.0`) so teams can opt-in to upgrades
+2. **Fail fast** — quality gates should block early, not at the deploy stage
+3. **Use `--atomic` on Helm** — always define a rollback strategy
+4. **Instrument everything** — Prometheus metrics + Slack notifications provide immediate feedback on pipeline health
+5. **Abstract secrets** — never hardcode credentials; use Jenkins credential store + Vault injection
+
+---
+
+## References
+
+- [Jenkins Shared Libraries Documentation](https://www.jenkins.io/doc/book/pipeline/shared-libraries/)
+- [CycloneDX Maven Plugin](https://github.com/CycloneDX/cyclonedx-maven-plugin)
+- [Dependency Track API](https://docs.dependencytrack.org/integrations/rest-api/)
+- [Helm Atomic Flag Docs](https://helm.sh/docs/helm/helm_upgrade/)
+- [SonarQube Quality Gates](https://docs.sonarqube.org/latest/user-guide/quality-gates/)
